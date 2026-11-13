@@ -254,6 +254,11 @@ img { max-width: 100%; }
 .btn-icon:active { transform: scale(.95); }
 .btn-icon:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(30, 215, 96, .35); }
 
+/* Mobile-only navigation: the hamburger, the drawer's close button and the
+   backdrop behind the drawer stay hidden until the mobile breakpoint (these
+   come after .btn-icon so they win the display fight against it). */
+.nav-toggle, .nav-close, .nav-backdrop { display: none; }
+
 /* Favorite toggle: outline + filled heart, one shown per state */
 .btn-fav { color: var(--muted); }
 .btn-fav .icon-heart-filled { display: none; }
@@ -1063,32 +1068,94 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
 }
 
 @media (max-width: 860px) {
-    /* Single column: the nav strip must be able to scroll horizontally, so the
-       track may never be forced wider than the viewport by its contents. */
+    /* Single column: the page track may never be forced wider than the
+       viewport by its contents (the nav now lives in a fixed drawer). */
     .app, .admin-body { grid-template-columns: minmax(0, 1fr); }
-    /* Topbar -> nav strip -> page, in three explicit rows. Without them the
-       sidebar claims row 2, the page drops into an implicit row 3 and the
-       growing "1fr" row 2 leaves a big empty band between them. */
-    .app { grid-template-rows: auto auto minmax(0, 1fr); }
-    .app > .sidebar { grid-row: 2; }
-    .app > .main { grid-row: 3; }
-    /* Sidebar collapses into a single bar: logo on the left, scrollable nav pills */
-    .sidebar {
-        position: static; height: auto; max-height: none; overflow: visible;
-        border-right: none; border-bottom: 1px solid #292932;
-        padding: 10px 14px;
-        display: flex; align-items: center; gap: 12px;
-    }
+    /* Topbar -> page. The sidebar is position:fixed, so it takes no grid row:
+       without an explicit second row the page would land in an implicit row
+       and the growing "1fr" row above it would leave a big empty band. */
+    .app { grid-template-rows: auto minmax(0, 1fr); }
+    .app > .main { grid-row: 2; }
     .admin-body .sidebar { position: static; height: auto; max-height: none; }
-    .logo { padding: 0; flex-shrink: 0; }
-    .nav {
-        flex-direction: row; gap: 6px;
-        flex: 1; min-width: 0;
-        overflow-x: auto; scrollbar-width: none; padding-bottom: 2px;
+
+    /* ---- Hamburger in the header ---- */
+    .nav-toggle {
+        display: inline-flex;
+        width: 42px;
+        height: 42px;
+        background: var(--bg-3);
+        border: 1px solid #292932;
+        border-radius: 12px;
+        color: var(--text);
     }
-    .nav::-webkit-scrollbar { display: none; }
-    /* never squeeze a label: scroll the strip instead */
-    .nav-link { padding: 10px 14px; min-height: 42px; border-radius: 999px; flex-shrink: 0; }
+    .nav-toggle:hover { background: var(--hover); color: var(--text); }
+    .topbar { gap: 12px; }
+
+    /* ---- Slide-out navigation drawer (left) ----
+       It is the same sidebar element - same logo, same nav links, same
+       routing - only its position changes, so nothing is duplicated. */
+    .app > .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        /* the base sidebar is align-self:start (a sticky column); left as-is it
+           would stop the fixed box from stretching, so the drawer would be only
+           as tall as its links instead of reaching the bottom of the screen */
+        align-self: normal;
+        z-index: 140;
+        width: min(300px, 86vw);
+        height: auto;
+        max-height: none;
+        padding: 14px 14px 20px;
+        border-right: 1px solid #292932;
+        border-bottom: none;
+        display: block;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        transform: translateX(-100%);
+        visibility: hidden;
+        /* visibility flips only after the slide has finished, so the drawer
+           never vanishes while it is still moving */
+        transition: transform .22s ease, visibility 0s linear .22s;
+    }
+    .app > .sidebar.is-open {
+        transform: translateX(0);
+        visibility: visible;
+        transition: transform .22s ease, visibility 0s linear 0s;
+        box-shadow: 24px 0 60px rgba(0, 0, 0, .55);
+    }
+    /* logo row: the close button sits on its own line, above the links */
+    .sidebar-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding-bottom: 16px;
+    }
+    .logo { padding: 0 6px; flex-shrink: 0; }
+    .nav-close {
+        display: inline-flex;
+        width: 38px;
+        height: 38px;
+        background: var(--bg-3);
+        border: 1px solid #292932;
+        border-radius: 11px;
+        color: var(--text-dim);
+    }
+    .nav-close:hover { background: var(--hover); color: var(--text); }
+    .nav { gap: 4px; }
+
+    /* dimmed area next to the drawer: tap it to close */
+    .nav-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 130;
+        background: rgba(0, 0, 0, .62);
+        animation: melody-fade-in .16s ease;
+    }
+
     .album-header { flex-direction: column; align-items: flex-start; }
 
     /* Player: two rows - info + transport, then seek + volume */
@@ -1137,11 +1204,20 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
     .btn-icon { min-height: 40px; min-width: 40px; }
 
     /* ---- Dashboard: phone layout ---- */
-    /* Stack the top bar so search never pushes account controls off-screen */
-    .topbar { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 14px; }
-    .search-form { max-width: none; flex: none; width: 100%; }
+    /* Header on phones: hamburger + greeting/logout share the first line and
+       the search field takes the whole second line (it needs the room for its
+       "Search" button), so nothing is pushed off-screen. */
+    .topbar { flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; }
+    .nav-toggle { order: 1; }
+    .topbar-user {
+        order: 2;
+        margin-left: auto;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .search-form { order: 3; flex: 1 1 100%; max-width: none; }
     .search-btn { padding: 11px 16px; }
-    .topbar-user { justify-content: center; flex-wrap: wrap; gap: 8px; }
     .page { padding: 20px 16px 40px; }
     /* Song cards stay 2-up even on 320px screens; playlist cards stay full width */
     .song-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }

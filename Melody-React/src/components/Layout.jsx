@@ -29,6 +29,9 @@ export default function Layout() {
   const location = useLocation()
   const [query, setQuery] = useState('')
   const [confirmingLogout, setConfirmingLogout] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
+
+  const closeNav = () => setNavOpen(false)
 
   /* Keep the topbar box in step with the search page's ?q= value. */
   useEffect(() => {
@@ -41,6 +44,33 @@ export default function Layout() {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [location.pathname])
+
+  /* The mobile drawer closes itself on navigation, on Escape, while it is
+     open (the page behind must not scroll), and when the viewport grows back
+     to the desktop layout where the sidebar is always visible. */
+  useEffect(() => {
+    setNavOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!navOpen) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') setNavOpen(false)
+    }
+    const media = window.matchMedia('(min-width: 861px)')
+    const onWide = (e) => {
+      if (e.matches) setNavOpen(false)
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', onKey)
+    media.addEventListener('change', onWide)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      media.removeEventListener('change', onWide)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [navOpen])
 
   const name =
     profile?.username ||
@@ -67,6 +97,17 @@ export default function Layout() {
       </a>
 
       <header className="topbar">
+        <button
+          type="button"
+          className="btn btn-icon nav-toggle"
+          aria-label="Open navigation menu"
+          aria-expanded={navOpen}
+          aria-controls="appSidebar"
+          onClick={() => setNavOpen(true)}
+        >
+          <Icon name="menu" size={22} />
+        </button>
+
         <SearchBox value={query} onChange={setQuery} onSubmit={goSearch} inputId="topbarSearch" />
 
         <div className="topbar-user">
@@ -84,11 +125,24 @@ export default function Layout() {
         </div>
       </header>
 
-      <aside className="sidebar">
-        <Link className="logo" to="/app" aria-label="Melody - home">
-          <BrandMark size={24} />
-          <span className="logo-text">Melody</span>
-        </Link>
+      {/* Tapping the dimmed area closes the mobile drawer. */}
+      {navOpen && <div className="nav-backdrop" onClick={closeNav} aria-hidden="true" />}
+
+      <aside className={`sidebar${navOpen ? ' is-open' : ''}`} id="appSidebar">
+        <div className="sidebar-head">
+          <Link className="logo" to="/app" aria-label="Melody - home" onClick={closeNav}>
+            <BrandMark size={24} />
+            <span className="logo-text">Melody</span>
+          </Link>
+          <button
+            type="button"
+            className="btn btn-icon nav-close"
+            aria-label="Close navigation menu"
+            onClick={closeNav}
+          >
+            <Icon name="x" size={20} />
+          </button>
+        </div>
 
         <nav className="nav" aria-label="Main navigation">
           {NAV_ITEMS.map((item) => (
@@ -96,6 +150,7 @@ export default function Layout() {
               key={item.to}
               to={item.to}
               end={item.end}
+              onClick={closeNav}
               className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
             >
               <Icon name={item.icon} size={20} className="nav-icon" />

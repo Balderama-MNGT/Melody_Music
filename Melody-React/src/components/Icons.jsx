@@ -108,6 +108,14 @@ const PATHS = {
       <path d="M12 5v14" />
     </>
   ),
+  /* hamburger - opens the mobile navigation drawer */
+  menu: (
+    <>
+      <line x1="4" x2="20" y1="6" y2="6" />
+      <line x1="4" x2="20" y1="12" y2="12" />
+      <line x1="4" x2="20" y1="18" y2="18" />
+    </>
+  ),
   'chevron-left': <path d="m15 18-6-6 6-6" />,
   'chevron-right': <path d="m9 18 6-6-6-6" />,
   'arrow-left': (
