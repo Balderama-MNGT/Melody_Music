@@ -107,7 +107,11 @@ export default function Library() {
                     queue={recent}
                     index={i}
                     meta={shortWhen(t.played_at)}
+                    /* phones drop the right-hand date column, so it is repeated
+                       inside the artist line where it can wrap instead */
+                    artistExtra={<span className="track-when"> &bull; {shortWhen(t.played_at)}</span>}
                     suffix=" • Audius"
+                    className="when-row"
                   />
                 ))}
               </ul>

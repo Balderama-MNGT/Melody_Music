@@ -58,7 +58,7 @@ export default function TrackRow({
         <div className="track-title">{track.title}</div>
         <div className="track-artist">
           {track.artist}
-          {suffix}
+          {suffix ? <span className="track-suffix">{suffix}</span> : null}
           {artistExtra}
         </div>
       </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icons.jsx'
 import AudiusSection from '../components/AudiusSection.jsx'
+import CoverArt from '../components/CoverArt.jsx'
 import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -24,7 +25,7 @@ import { playSection } from '../lib/sections.js'
  */
 export default function Home() {
   const { session, profile } = useAuth()
-  const { playQueue } = usePlayer()
+  const { playQueue, current, playing, loading, toggle } = usePlayer()
   const toast = useToast()
 
   const [state, setState] = useState('loading') // loading | ready | error
@@ -64,7 +65,19 @@ export default function Home() {
   }, [load])
 
   const name = profile?.username || session?.user?.user_metadata?.username || 'there'
-  const resume = recent[0] || null
+
+  /* "Jump back in" mirrors the real player: whatever the shared <audio> element
+     is loaded wins, so the card always shows the live track (and its state).
+     With nothing playing it falls back to the newest entry of your history. */
+  const live = Boolean(current)
+  const resume = current || recent[0] || null
+  const resumeLabel = live
+    ? loading
+      ? 'Loading…'
+      : playing
+        ? 'Now playing'
+        : 'Paused'
+    : 'Jump back in'
 
   /** Play every track of one playlist (used by the quick-access tiles). */
   async function playPlaylist(playlist) {
@@ -142,28 +155,50 @@ export default function Home() {
 
         {resume && (
           <a
-            className="home-resume"
+            className={`home-resume${live ? ' is-live' : ''}${live && playing ? ' is-playing' : ''}${
+              live && loading ? ' is-loading' : ''
+            }`}
             href="/app/history"
-            aria-label={`Jump back in: play ${resume.title}`}
+            aria-label={
+              live
+                ? `${playing ? 'Pause' : 'Play'} ${resume.title}${resume.artist ? ` by ${resume.artist}` : ''}`
+                : `Jump back in: play ${resume.title}`
+            }
             onClick={(e) => {
               e.preventDefault()
-              playQueue(recent, 0)
+              if (live) toggle()      // a track is loaded: drive the real player
+              else playQueue(recent, 0) // nothing loaded yet: restart the history queue
             }}
           >
-            {resume.cover ? (
-              <img className="home-resume-cover" src={resume.cover} alt="" referrerPolicy="no-referrer" />
-            ) : (
-              <span className="home-resume-cover placeholder-thumb" aria-hidden="true">
-                <Icon name="music" size={26} />
-              </span>
-            )}
+            <span className="home-resume-cover">
+              <CoverArt
+                track={resume}
+                className="home-resume-img"
+                placeholderClassName="home-resume-img placeholder-thumb"
+                placeholderSize={24}
+              />
+              {live && playing && (
+                <span className="home-resume-badge" aria-hidden="true">
+                  <span className="home-resume-eq">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </span>
+              )}
+              {live && loading && (
+                <span className="home-resume-badge" aria-hidden="true">
+                  <span className="spinner home-resume-spinner" />
+                </span>
+              )}
+            </span>
             <span className="home-resume-text">
-              <span className="home-resume-label">Jump back in</span>
+              <span className="home-resume-label">{resumeLabel}</span>
               <span className="home-resume-title">{resume.title}</span>
               <span className="home-resume-artist">{resume.artist || 'Unknown artist'}</span>
             </span>
             <span className="home-resume-play" aria-hidden="true">
-              <Icon name="play" size={20} />
+              <Icon name={playing ? 'pause' : 'play'} size={20} />
             </span>
           </a>
         )}

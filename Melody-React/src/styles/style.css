@@ -76,9 +76,12 @@ a { color: inherit; text-decoration: none; }
 img { max-width: 100%; }
 
 /* ---------- Layout ---------- */
+/* minmax(0, ...) keeps the tracks from being widened by a child's intrinsic
+   width (a grid track's "auto" minimum is the item's min-content size, which
+   let the scrollable nav strip push the whole shell past the viewport). */
 .app {
     display: grid;
-    grid-template-columns: var(--sidebar-w) 1fr;
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
     grid-template-rows: auto 1fr;
     min-height: 100vh;
     padding-bottom: var(--player-h);
@@ -90,6 +93,7 @@ img { max-width: 100%; }
     justify-content: space-between;
     align-items: center;
     gap: 16px;
+    min-width: 0;
     min-height: var(--topbar-h);
     padding: 12px 22px;
     background: var(--bg-2);
@@ -108,6 +112,7 @@ img { max-width: 100%; }
     background: var(--bg-2);
     padding: 20px 14px;
     border-right: 1px solid #292932;
+    min-width: 0;                /* the nav strip scrolls instead of stretching the shell */
     position: sticky;
     top: var(--topbar-h);      /* sit below the sticky topbar, not under it */
     align-self: start;
@@ -339,7 +344,7 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
 .suggest-all:hover { color: var(--text); background: var(--hover); border-radius: 0 0 8px 8px; }
 
 .inline-form { display: flex; gap: 10px; margin-bottom: 22px; max-width: 520px; }
-.inline-form input { flex: 1; }
+.inline-form input { flex: 1; min-width: 0; }   /* never let the field's intrinsic width push the row wider than the screen */
 
 .admin-form { background: var(--bg-2); padding: 20px; border-radius: var(--radius); margin-bottom: 26px; }
 .form-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 14px; }
@@ -459,7 +464,7 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
 .history-summary { color: var(--text-dim); font-size: 13.5px; margin: -8px 0 20px; }
 .history-last { max-width: 720px; margin-bottom: 6px; }
 /* Phone layout moves the play time into the artist line (.track-when) */
-.history-row .track-when { display: none; }
+.track-when { display: none; }
 
 /* ---------- Stats / tables ---------- */
 .stat-grid {
@@ -479,7 +484,10 @@ a.stat-card:hover { background: var(--bg-3); }
 .stat-label { color: var(--text-dim); font-size: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .stat-label svg { color: var(--muted); flex-shrink: 0; }
 
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+/* minmax(0, …): the nowrap track titles inside a column must never be able to
+   widen the grid track itself (a plain 1fr has an auto minimum = min-content,
+   which pushed the page ~40px wider than the viewport on laptop screens). */
+.two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 30px; }
 /* the first heading inside a column shouldn't inherit the big section top margin */
 .two-col .section-title:first-child { margin-top: 0; }
 
@@ -1040,19 +1048,30 @@ input[type="range"]:disabled::-webkit-slider-thumb { cursor: not-allowed; }
 input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
 
 /* ---------- Admin ---------- */
-.admin-body { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }  /* no player bar in admin */
+.admin-body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }  /* no player bar in admin */
 .admin-body .sidebar { position: sticky; top: 0; height: 100vh; max-height: none; overflow-y: auto; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1024px) {
-    .hero { grid-template-columns: 1fr; padding-top: 60px; }
-    .hero-art { min-height: 300px; max-width: 460px; margin: 0 auto; }
-    .auth-shell { grid-template-columns: 1fr; }
+    .hero { grid-template-columns: minmax(0, 1fr); padding-top: 60px; }
+    /* The art is a grid item made only of absolutely positioned children, so
+       the auto margins (which disable stretch) would shrink it to 0 wide and
+       pile the disc/covers/equalizer on one point. Give it an explicit width. */
+    .hero-art { width: 100%; min-height: 300px; max-width: 460px; margin: 0 auto; }
+    .auth-shell { grid-template-columns: minmax(0, 1fr); }
     .auth-visual { display: none; }  /* decorative only - form stays fully usable */
 }
 
 @media (max-width: 860px) {
-    .app, .admin-body { grid-template-columns: 1fr; }
+    /* Single column: the nav strip must be able to scroll horizontally, so the
+       track may never be forced wider than the viewport by its contents. */
+    .app, .admin-body { grid-template-columns: minmax(0, 1fr); }
+    /* Topbar -> nav strip -> page, in three explicit rows. Without them the
+       sidebar claims row 2, the page drops into an implicit row 3 and the
+       growing "1fr" row 2 leaves a big empty band between them. */
+    .app { grid-template-rows: auto auto minmax(0, 1fr); }
+    .app > .sidebar { grid-row: 2; }
+    .app > .main { grid-row: 3; }
     /* Sidebar collapses into a single bar: logo on the left, scrollable nav pills */
     .sidebar {
         position: static; height: auto; max-height: none; overflow: visible;
@@ -1091,7 +1110,7 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
 }
 
 /* Two-column blocks (Playlists | Favorites, admin panels) only stack on phones */
-@media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
 
 @media (max-width: 640px) {
     .site-nav-inner { padding: 12px 16px; gap: 10px; }
@@ -1136,9 +1155,22 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
     .stat-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
     .empty-state { padding: 26px 18px; }
     /* Track rows: tighter rhythm so title + actions fit narrow screens */
-    .track { gap: 10px; padding: 8px 10px; }
-    .track-play { width: 36px; height: 36px; }
-    .track-thumb { width: 36px; height: 36px; }
+    .track { gap: 8px; padding: 8px; }
+    .track-play { width: 34px; height: 34px; }
+    .track-thumb { width: 34px; height: 34px; }
+    /* the row's own buttons stay tappable without eating the title's room */
+    .track .btn-icon { min-width: 36px; min-height: 36px; }
+    /* the artist line may wrap once, never into a three-line stack */
+    .track-artist {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    /* Inside a dialog there is a lot less width to go around and the artist
+       avatar already sits a few pixels above, so the row drops its thumbnail
+       and keeps title + actions readable. */
+    .artist-tracks .track-thumb { display: none; }
     .track-plays { font-size: 11.5px; }
     /* Admin tables scroll sideways instead of stretching the page */
     .table { display: block; overflow-x: auto; white-space: nowrap; }
@@ -1405,10 +1437,39 @@ button.track-play { border: 0; cursor: pointer; font: inherit; }
     background: rgba(0, 0, 0, .34); border: 1px solid #2c2c35; transition: background .15s, border-color .15s, transform .15s;
 }
 .home-resume:hover, .home-resume:focus-visible { background: rgba(0, 0, 0, .5); border-color: var(--accent); transform: translateY(-2px); outline: none; }
-.home-resume-cover { width: 68px; height: 68px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(--bg-3);
-    display: grid; place-items: center; color: var(--text-dim); }
+/* The card is driven by the live player: accent the border while a track is
+   loaded, tint it while it actually plays. */
+.home-resume.is-live { border-color: rgba(30, 215, 96, .45); }
+.home-resume.is-playing { background: rgba(30, 215, 96, .10); }
+.home-resume-cover { position: relative; overflow: hidden; width: 68px; height: 68px; border-radius: 10px; flex-shrink: 0;
+    background: var(--bg-3); display: grid; place-items: center; color: var(--text-dim); }
+.home-resume-cover .home-resume-img { width: 100%; height: 100%; border-radius: inherit; display: block; object-fit: cover; }
+.home-resume-cover .home-resume-img.placeholder-thumb { display: grid; place-items: center; object-fit: contain; }
+/* Live status badge on the artwork: equalizer while playing, spinner while buffering */
+.home-resume-badge {
+    position: absolute; right: 5px; bottom: 5px;
+    display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(6, 6, 10, .8); border: 1px solid rgba(30, 215, 96, .55); color: var(--accent);
+}
+.home-resume-eq { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+.home-resume-eq i {
+    display: block; width: 3px; height: 100%; border-radius: 2px; background: var(--accent);
+    transform-origin: bottom center; animation: home-eq .9s ease-in-out infinite alternate;
+}
+.home-resume-eq i:nth-child(2) { animation-delay: .18s; }
+.home-resume-eq i:nth-child(3) { animation-delay: .36s; }
+@keyframes home-eq { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
+.home-resume-spinner { width: 13px; height: 13px; }
+.home-resume.is-loading .home-resume-cover { animation: melody-pulse 1.1s ease-in-out infinite; }
+.home-resume.is-playing .home-resume-play { animation: home-ring 1.8s ease-out infinite; }
+@keyframes home-ring {
+    0%   { box-shadow: 0 0 0 0 rgba(30, 215, 96, .45); }
+    70%  { box-shadow: 0 0 0 12px rgba(30, 215, 96, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(30, 215, 96, 0); }
+}
 .home-resume-text { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
-.home-resume-label { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.home-resume-label { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-resume-title, .home-resume-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-resume-title { font-weight: 700; font-size: 15px; }
 .home-resume-artist { color: var(--text-dim); font-size: 13px; }
@@ -1524,7 +1585,7 @@ body.dlg-open { overflow: hidden; }
 /* --- responsive --- */
 @media (max-width: 1100px) { .quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
-    .quick-grid { grid-template-columns: 1fr; }
+    .quick-grid { grid-template-columns: minmax(0, 1fr); }
     .quick-link { gap: 12px; padding-right: 54px; }
     .quick-thumb { width: 56px; height: 56px; }
     .quick-play { width: 36px; height: 36px; right: 10px; }
@@ -1544,10 +1605,17 @@ body.dlg-open { overflow: hidden; }
     .artist-avatar, .artist-avatar-ph { width: 58px; height: 58px; }
     .artist-box { padding: 16px; }
     .section-btn { margin-left: auto; }
-    /* History rows: the day groups already say when, so drop the time text
-       to keep the title + action buttons comfortable on narrow screens */
-    .history-row .track-plays { display: none; }
-    .history-row .track-when { display: inline; }
+    /* Rows that carry a long "when" (day + clock time) move it into the artist
+       line instead of a fixed right-hand column, otherwise the date squeezes
+       the title down to a couple of characters on 320px screens */
+    .history-row .track-plays,
+    .when-row .track-plays { display: none; }
+    .history-row .track-when,
+    .when-row .track-when { display: inline; }
+    /* the source tag is the least useful part of a line that now has to carry
+       the time as well - drop it there so the time stays readable */
+    .history-row .track-suffix,
+    .when-row .track-suffix { display: none; }
     .history-summary { font-size: 12.5px; margin: -6px 0 16px; }
 }
 
