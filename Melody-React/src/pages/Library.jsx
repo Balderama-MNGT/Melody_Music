@@ -63,9 +63,10 @@ export default function Library() {
         <Icon name="library" size={24} /> <span>Music Library</span>
       </h1>
 
-      {/* Filters the list on this page as you type. The app's search lives in
-          the sidebar, so this is a plain filter field: no search landmark, no
-          submit button (its button never did anything but swallow the form). */}
+      {/* Filters the list on this page as you type. The app's one search field
+          lives on the Explore Music page, so this is a plain filter: no search
+          landmark, no submit button (its button never did anything but swallow
+          the form). */}
       <div className="search-form search-form-library">
         <span className="search-icon" aria-hidden="true">
           <Icon name="search" size={18} />

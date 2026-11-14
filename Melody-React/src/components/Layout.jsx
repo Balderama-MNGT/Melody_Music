@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Icon, BrandMark } from './Icons.jsx'
 import Player from './Player.jsx'
-import SearchBox from './SearchBox.jsx'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePlayer } from '../context/PlayerContext.jsx'
@@ -18,31 +17,23 @@ const NAV_ITEMS = [
 ]
 
 /**
- * The authenticated shell: topbar (account), the sidebar (search + nav),
- * the page itself and the ever-present bottom player.
+ * The authenticated shell: topbar (tagline + account), the sidebar (logo +
+ * nav), the page itself and the ever-present bottom player.
  * Port of includes/header.php, includes/sidebar.php and includes/footer.php.
  *
- * There is exactly one search field in the app and it lives in the sidebar,
- * so it is reachable from every page without a second box fighting it over
- * the same query.
+ * There is exactly one search field in the app and it lives on the Search
+ * page, directly under that page's title - the sidebar and the topbar stay
+ * free of inputs so nothing can fight the results page over the same query.
  */
 export default function Layout() {
   const { session, profile, signOut } = useAuth()
   const { playing } = usePlayer()
   const navigate = useNavigate()
   const location = useLocation()
-  const [query, setQuery] = useState('')
   const [confirmingLogout, setConfirmingLogout] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
 
   const closeNav = () => setNavOpen(false)
-
-  /* Keep the sidebar box in step with the search page's ?q= value. */
-  useEffect(() => {
-    if (location.pathname === '/app/search') {
-      setQuery(new URLSearchParams(location.search).get('q') || '')
-    }
-  }, [location.pathname, location.search])
 
   /* A new page starts at the top, like nav.js did. */
   useEffect(() => {
@@ -82,18 +73,6 @@ export default function Layout() {
     session?.user?.email ||
     'there'
 
-  function goSearch(q) {
-    // Submitting from the sidebar: the results replace whatever is on screen,
-    // so on phones the drawer must get out of the way (the page it was opened
-    // from keeps its pathname when only ?q= changes).
-    setNavOpen(false)
-    const target = q ? `/app/search?q=${encodeURIComponent(q)}` : '/app/search'
-    /* The same query is already on screen: Enter twice in a row must not push
-       a duplicate history entry (Back would then retrace the same page). */
-    if (`${location.pathname}${location.search}` === target) return
-    navigate(target)
-  }
-
   async function logout() {
     setConfirmingLogout(false)
     // Land on the public page first (it owns the "logged out" popup), then
@@ -109,16 +88,21 @@ export default function Layout() {
       </a>
 
       <header className="topbar">
-        <button
-          type="button"
-          className="btn btn-icon nav-toggle"
-          aria-label="Open navigation menu"
-          aria-expanded={navOpen}
-          aria-controls="appSidebar"
-          onClick={() => setNavOpen(true)}
-        >
-          <Icon name="menu" size={22} />
-        </button>
+        {/* Left: the menu button (phones) plus one line that gives the bare
+            header a purpose without repeating the greeting on the right. */}
+        <div className="topbar-left">
+          <button
+            type="button"
+            className="btn btn-icon nav-toggle"
+            aria-label="Open navigation menu"
+            aria-expanded={navOpen}
+            aria-controls="appSidebar"
+            onClick={() => setNavOpen(true)}
+          >
+            <Icon name="menu" size={22} />
+          </button>
+          <span className="topbar-tagline">Your music, all in one place</span>
+        </div>
 
         <div className="topbar-user">
           <span className="topbar-greeting">
@@ -153,18 +137,6 @@ export default function Layout() {
             <Icon name="x" size={20} />
           </button>
         </div>
-
-        {/* The app's only search field: suggestions while you type, Enter for
-            the full results. It sits above the nav so it is on every page
-            (and inside the drawer on phones, opened by the hamburger). */}
-        <SearchBox
-          value={query}
-          onChange={setQuery}
-          onSubmit={goSearch}
-          inputId="sidebarSearch"
-          placeholder="Search"
-          showSubmit={false}
-        />
 
         <nav className="nav" aria-label="Main navigation">
           {NAV_ITEMS.map((item) => (

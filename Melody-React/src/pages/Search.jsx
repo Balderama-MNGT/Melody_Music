@@ -1,23 +1,44 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icons.jsx'
 import AudiusSection from '../components/AudiusSection.jsx'
+import SearchBox from '../components/SearchBox.jsx'
 import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState } from '../components/States.jsx'
 import { fetchLibraryTracks } from '../lib/db.js'
 
 /**
- * Search - pages/search.php: Audius results on top, your own library below.
+ * Search - pages/search.php: the app's one search field sits directly under
+ * the page title, the suggestions hang off it, Audius results follow, then
+ * your own library.
  *
- * The app has exactly one search field - the one in the sidebar - so this page
- * only renders a header plus the results for its ?q=. Two boxes with their own
- * autocomplete used to fight each other over the same query.
+ * The box owns the query: typing only feeds the suggestions, Enter or the
+ * Search button pushes ?q= (and Back/forward writes it back into the box),
+ * so the results and the field can never disagree. Nothing else in the app
+ * holds a search input - the sidebar and the topbar stay input-free.
  */
 export default function Search() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [params] = useSearchParams()
   const q = (params.get('q') || '').trim()
 
+  /* What the box shows: the submitted query, plus anything typed since. */
+  const [term, setTerm] = useState(q)
+  useEffect(() => {
+    setTerm(q)
+  }, [q])
+
   const [library, setLibrary] = useState(null) // null = not loaded yet
+
+  /* Audius answers for this page through AudiusSection, which reports the
+     state it is in together with the query it belongs to - so a new ?q= is
+     never read as the previous query's outcome. */
+  const [audiusReport, setAudiusReport] = useState({ q: null, state: 'loading' })
+  const reportAudius = useCallback((rq, state) => {
+    setAudiusReport((prev) => (prev.q === rq && prev.state === state ? prev : { q: rq, state }))
+  }, [])
+  const audiusState = audiusReport.q === q ? audiusReport.state : 'loading'
 
   useEffect(() => {
     let alive = true
@@ -39,12 +60,26 @@ export default function Search() {
       })
     : []
 
+  /* Audius came back empty and the library has nothing either: one clear
+     message instead of two stacked "nothing here" boxes. */
+  const noResults =
+    q !== '' && audiusState === 'empty' && library !== null && hits.length === 0
+
+  function submit(value) {
+    const next = String(value || '').trim()
+    const target = next ? `/app/search?q=${encodeURIComponent(next)}` : '/app/search'
+    /* The same query is already on screen: Enter twice in a row must not push
+       a duplicate history entry (Back would then retrace the same page). */
+    if (`${location.pathname}${location.search}` === target) return
+    navigate(target)
+  }
+
   return (
     <section className="page">
       <header className="page-header">
         <h1 className="page-title">
           <Icon name="search" size={24} />
-          <span>{q === '' ? 'Explore Music' : 'Search Results'}</span>
+          <span>Explore Music</span>
         </h1>
         {q !== '' && (
           <p className="page-subtitle">
@@ -53,11 +88,27 @@ export default function Search() {
         )}
       </header>
 
+      {/* The app's only search field: suggestions drop straight under it and
+          hide the moment the query is submitted. */}
+      <SearchBox
+        value={term}
+        onChange={setTerm}
+        onSubmit={submit}
+        inputId="pageSearch"
+        formClassName="search-form-page"
+      />
+
       {q === '' ? (
         <EmptyState
           icon={<Icon name="search" size={22} />}
           title="Start searching"
-          text="Type a song, artist, album or keyword in the search bar to search Audius and your own library."
+          text="Type a song, artist, album or keyword in the search bar above to search Audius and your own library."
+        />
+      ) : noResults ? (
+        <EmptyState
+          icon={<Icon name="search" size={22} />}
+          title={`No matches for \u201C${q}\u201D`}
+          text="Try different keywords, or check the spelling."
         />
       ) : (
         <>
@@ -65,7 +116,7 @@ export default function Search() {
             <Icon name="music" size={18} /> <span>On Audius</span>
           </h2>
           <div className="audius-section">
-            <AudiusSection mode="search" query={q} limit={20} />
+            <AudiusSection mode="search" query={q} limit={20} onStatus={reportAudius} />
           </div>
 
           <h2 className="section-title">

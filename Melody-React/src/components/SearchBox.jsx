@@ -9,13 +9,13 @@ const MIN_TERM = 2
 const SUGGEST_LIMIT = 6
 
 /**
- * The app's one search field - it lives in the sidebar, so it travels to
- * every page.
+ * The app's one search field - it lives on the Search page, directly under
+ * that page's title, so it is the only box that can ever drive ?q=.
  *
  * On top of the plain box: live suggestions (debounced while you type,
  * ArrowUp/ArrowDown to highlight, Enter to play the highlighted song or take
- * the artist to the results, Esc to close or clear), a clear (x) button and
- * a spinner while suggestions load.
+ * the artist to the results, Esc to close or clear), a clear (x) button,
+ * a Search button and a spinner while suggestions load.
  *
  * Two states are kept apart on purpose:
  *   - typing   -> the list may open (only while the field is the one being
@@ -31,8 +31,6 @@ export default function SearchBox({
   inputId = 'searchBox',
   autoFocus = false,
   formClassName = '',
-  placeholder = 'Search songs, artists, albums...',
-  showSubmit = true,
 }) {
   const { playQueue } = usePlayer()
   const [items, setItems] = useState([]) // song suggestions (playable)
@@ -162,10 +160,9 @@ export default function SearchBox({
 
   function onKeyDown(e) {
     if (e.key === 'Escape') {
-      /* Dismiss this layer only. While the shell listens for Escape too (it
-         closes the phone drawer), stopping the event here keeps the drawer
-         open so the field stays usable; with nothing left to dismiss, the
-         event carries on and the shell may close the drawer. */
+      /* Dismiss this layer only: the shell listens for Escape too (it closes
+         the phone drawer), so stopping the event here lets Escape walk down
+         this list, then the typed value, before anything else reacts. */
       if (open) {
         e.stopPropagation()
         setOpen(false)
@@ -196,20 +193,22 @@ export default function SearchBox({
       role="search"
       onSubmit={submit}
     >
-      <span className="search-icon" aria-hidden="true">
-        {busy ? <span className="spinner search-spinner" /> : <Icon name="search" size={18} />}
-      </span>
       <label className="visually-hidden" htmlFor={inputId}>
         Search songs, artists, albums
       </label>
       <span className="search-field">
+        {/* Inside the field, not the form: it must line up with the input even
+            where the row wraps into two lines (input over button on phones). */}
+        <span className="search-icon" aria-hidden="true">
+          {busy ? <span className="spinner search-spinner" /> : <Icon name="search" size={18} />}
+        </span>
         <input
           ref={inputRef}
           type="text"
           id={inputId}
           name="q"
           className={`search-input${value ? ' has-clear' : ''}`}
-          placeholder={placeholder}
+          placeholder="Search songs, artists, albums..."
           value={value}
           onChange={(e) => {
             submittedRef.current = false // typing again: suggestions allowed
@@ -236,11 +235,9 @@ export default function SearchBox({
           </button>
         ) : null}
       </span>
-      {showSubmit ? (
-        <button type="submit" className="btn btn-primary search-btn">
-          Search
-        </button>
-      ) : null}
+      <button type="submit" className="btn btn-primary search-btn">
+        Search
+      </button>
 
       {open && options.length > 0 ? (
         <div className="search-suggest" id={`${inputId}-suggest`} role="listbox" aria-label="Suggestions">

@@ -17,6 +17,10 @@ import { EmptyState, ErrorState, LoadingState, SkeletonRow } from './States.jsx'
  * limit   - how many items to ask for
  * layout  - "row" = horizontally scrolling strip on the home page,
  *           otherwise a grid (search always renders rows, like the PHP page).
+ * onStatus- optional (query, state) callback, so a page hosting a search can
+ *           tell when nothing matched at all. State only - the request itself
+ *           stays here, and the callback must be stable (useCallback) because
+ *           it is part of what re-triggers the load.
  */
 const LABELS = {
   trending: 'Loading trending tracks…',
@@ -37,7 +41,7 @@ function toQueueItem(t) {
   }
 }
 
-export default function AudiusSection({ mode, query = '', limit, layout = 'grid' }) {
+export default function AudiusSection({ mode, query = '', limit, layout = 'grid', onStatus }) {
   const { playQueue } = usePlayer()
   const [state, setState] = useState('loading') // loading | ready | error | empty | idle
   const [tracks, setTracks] = useState([])
@@ -53,12 +57,24 @@ export default function AudiusSection({ mode, query = '', limit, layout = 'grid'
 
   const play = useCallback((list, i) => playQueue(list.map(toQueueItem), i), [playQueue])
 
+  /* Every transition goes through here: one setState, one report, so a page
+     listening via onStatus can never see a state this component is not in.
+     (Reporting from a separate effect would hand a fresh query the previous
+     query's answer for a frame.) */
+  const applyState = useCallback(
+    (next) => {
+      setState(next)
+      onStatus?.(query, next)
+    },
+    [onStatus, query]
+  )
+
   const load = useCallback(() => {
     if (isSearch && query.trim() === '') {
-      setState('idle')
+      applyState('idle')
       return
     }
-    setState('loading')
+    applyState('loading')
 
     const params = isArtists
       ? { action: 'artists', limit: String(effectiveLimit) }
@@ -71,28 +87,28 @@ export default function AudiusSection({ mode, query = '', limit, layout = 'grid'
         if (isArtists) {
           const list = res.artists || []
           if (!list.length) {
-            setState('empty')
+            applyState('empty')
             return
           }
           setArtists(list)
-          setState('ready')
+          applyState('ready')
           return
         }
         const list = (res.tracks || []).filter((t) => t.streamable)
         if (!list.length) {
           setTracks([])
-          setState('empty')
+          applyState('empty')
           return
         }
         setTracks(list)
-        setState('ready')
+        applyState('ready')
       })
       .catch((err) => {
         setError(err?.message || 'Melody could not load Audius tracks.')
         setDebug(err?.debug ?? null)
-        setState('error')
+        applyState('error')
       })
-  }, [mode, query, effectiveLimit, isArtists, isSearch])
+  }, [mode, query, effectiveLimit, isArtists, isSearch, applyState])
 
   useEffect(() => {
     load()

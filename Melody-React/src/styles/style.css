@@ -103,6 +103,16 @@ img { max-width: 100%; }
     z-index: 20;
 }
 
+/* Left of the header: the hamburger (phones only) and one quiet line, so the
+   bar reads as a header rather than a greeting stranded in the corner. */
+.topbar-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.topbar-tagline {
+    font-size: 13.5px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .topbar-user { display: flex; align-items: center; gap: 12px; color: var(--text-dim); flex-shrink: 0; margin-left: auto; }
 .topbar-greeting { font-size: 14px; white-space: nowrap; }
 .topbar-greeting strong { color: var(--text); }
@@ -175,7 +185,7 @@ img { max-width: 100%; }
 .page h1 svg, .page-title svg { color: var(--accent); vertical-align: -4px; margin-right: 12px; }
 
 /* Page header: the title plus an optional line underneath (search results).
-   The search box itself lives in the sidebar - this header replaces it. */
+   On the Search page the app's one search field sits directly below it. */
 .page-header { margin-bottom: 22px; }
 .page-header .page-title { margin-bottom: 4px; }
 .page-subtitle { margin: 0; color: var(--text-dim); font-size: 15px; overflow-wrap: anywhere; }
@@ -312,11 +322,11 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
 .search-btn { flex-shrink: 0; padding: 11px 20px; }
 .search-form-library { margin-bottom: 22px; max-width: 640px; }
 
-/* The app's one search field sits in the sidebar column, so it takes the full
-   width of that column (a button would leave the input ~90px of text room) */
-.sidebar .search-form { width: 100%; max-width: none; margin-bottom: 14px; }
+/* The Search page's field: one wide row directly under the page title (the
+   only search input in the app), so it gets its own width and spacing. */
+.search-form-page { max-width: 760px; margin-bottom: 22px; }
 
-/* --- live search suggestions (the sidebar search field) --- */
+/* --- live search suggestions (the page search field) --- */
 .search-field { position: relative; display: flex; flex: 1; min-width: 0; }
 .search-input.has-clear { padding-right: 38px; }
 .search-clear {
@@ -334,10 +344,11 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
     max-height: min(420px, calc(100vh - var(--topbar-h) - var(--player-h) - 64px));
     overflow-y: auto; animation: suggest-in .16s ease;
 }
-/* In the sidebar the field starts well below the topbar (logo above it), so
-   it has that much less room before the player - the list must stay above it */
-.sidebar .search-suggest {
-    max-height: min(420px, calc(100vh - var(--topbar-h) - var(--player-h) - 176px));
+/* The page field starts well below the topbar (title, subtitle and its own
+   button above it), so its list gets a tighter ceiling and can never reach
+   the fixed player - not even stacked on a short phone screen. */
+.search-form-page .search-suggest {
+    max-height: min(420px, calc(100vh - var(--topbar-h) - var(--player-h) - 240px));
 }
 @keyframes suggest-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .suggest-item {
@@ -1226,10 +1237,11 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
     .btn-icon { min-height: 40px; min-width: 40px; }
 
     /* ---- Dashboard: phone layout ---- */
-    /* Header on phones: the hamburger sits left, the greeting/logout right,
-       on one line - the search field lives in the drawer now. */
+    /* Header on phones: hamburger left, greeting/logout right, on one line -
+       the tagline has no room here and the search field lives in the page. */
     .topbar { gap: 8px 10px; padding: 10px 12px; }
-    .nav-toggle { order: 1; }
+    .topbar-left { order: 1; }
+    .topbar-tagline { display: none; }
     .topbar-user {
         order: 2;
         margin-left: auto;
@@ -1238,6 +1250,11 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
         gap: 8px;
     }
     .page { padding: 20px 16px 40px; }
+    /* The page's search row stacks when width is short: the input takes its
+       own line, the Search button runs full width underneath it. */
+    .search-form-page { flex-wrap: wrap; }
+    .search-form-page .search-field { flex: 1 1 100%; }
+    .search-form-page .search-btn { flex: 1 1 100%; }
     /* Song cards stay 2-up even on 320px screens; playlist cards stay full width */
     .song-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
     .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
