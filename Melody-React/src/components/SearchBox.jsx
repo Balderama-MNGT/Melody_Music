@@ -33,6 +33,9 @@ export default function SearchBox({
   const wrapRef = useRef(null)
   const inputRef = useRef(null)
   const reqRef = useRef(0)
+  /* bumped on focus so a field that already holds text (?q=... from the URL)
+     only fetches once someone actually goes to it */
+  const [focusTick, setFocusTick] = useState(0)
 
   const term = value.trim()
 
@@ -41,7 +44,11 @@ export default function SearchBox({
     let alive = true
     const id = ++reqRef.current
 
-    if (term.length < MIN_TERM) {
+    /* Never pop the list open on its own - a field seeded from the URL (the
+       results page writes ?q= into the topbar) must not cover the page. Only
+       a field the user is actually in may fetch suggestions. */
+    const inField = typeof document !== 'undefined' && document.activeElement === inputRef.current
+    if (term.length < MIN_TERM || !inField) {
       setItems([])
       setActive(-1)
       setOpen(false)
@@ -75,7 +82,7 @@ export default function SearchBox({
       alive = false
       clearTimeout(timer)
     }
-  }, [term])
+  }, [term, focusTick])
 
   /* Clicking anywhere outside closes the list. */
   useEffect(() => {
@@ -157,6 +164,10 @@ export default function SearchBox({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={() => {
+            focusedRef.current = true
+            setFocusTick((t) => t + 1)
+          }}
           onBlur={(e) => {
             if (!wrapRef.current?.contains(e.relatedTarget)) {
               setOpen(false)

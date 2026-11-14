@@ -1,25 +1,23 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icons.jsx'
-import SearchBox from '../components/SearchBox.jsx'
 import AudiusSection from '../components/AudiusSection.jsx'
 import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState } from '../components/States.jsx'
 import { fetchLibraryTracks } from '../lib/db.js'
 
-/** Search - pages/search.php: Audius results on top, your own library below. */
+/**
+ * Search - pages/search.php: Audius results on top, your own library below.
+ *
+ * The app has exactly one search field - the one in the topbar - so this page
+ * only renders a header plus the results for its ?q=. Two boxes with their own
+ * autocomplete used to fight each other over the same query.
+ */
 export default function Search() {
   const [params] = useSearchParams()
-  const navigate = useNavigate()
   const q = (params.get('q') || '').trim()
 
-  const [input, setInput] = useState(q)
   const [library, setLibrary] = useState(null) // null = not loaded yet
-
-  /* Keep the box in step with the URL (topbar search writes ?q= too). */
-  useEffect(() => {
-    setInput(q)
-  }, [q])
 
   useEffect(() => {
     let alive = true
@@ -43,24 +41,23 @@ export default function Search() {
 
   return (
     <section className="page">
-      <h1 className="page-title">
-        <Icon name="search" size={24} /> <span>Search</span>
-      </h1>
-
-      <SearchBox
-        value={input}
-        onChange={setInput}
-        onSubmit={(text) => navigate(text ? `/app/search?q=${encodeURIComponent(text)}` : '/app/search')}
-        inputId="pageSearch"
-        autoFocus
-        formClassName="search-form-page"
-      />
+      <header className="page-header">
+        <h1 className="page-title">
+          <Icon name="search" size={24} />
+          <span>{q === '' ? 'Explore Music' : 'Search Results'}</span>
+        </h1>
+        {q !== '' && (
+          <p className="page-subtitle">
+            Showing results for <strong>&ldquo;{q}&rdquo;</strong>
+          </p>
+        )}
+      </header>
 
       {q === '' ? (
         <EmptyState
           icon={<Icon name="search" size={22} />}
           title="Start searching"
-          text="Type a song, artist, album or keyword above to search Audius and your own library."
+          text="Type a song, artist, album or keyword in the search bar at the top of the page to search Audius and your own library."
         />
       ) : (
         <>

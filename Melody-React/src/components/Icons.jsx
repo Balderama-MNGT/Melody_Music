@@ -79,6 +79,24 @@ const PATHS = {
       <line x1="19" x2="19" y1="5" y2="19" />
     </>
   ),
+  /* transport: repeat the queue (repeat-1 carries the "1" for repeat-one) */
+  repeat: (
+    <>
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </>
+  ),
+  'repeat-1': (
+    <>
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+      <path d="M10.9 10.4 12.7 8.6 12.7 15.4" />
+    </>
+  ),
   'volume-2': (
     <>
       <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />

@@ -15,6 +15,9 @@ import { recordPlay } from '../lib/db.js'
 const PlayerContext = createContext(null)
 
 const VOLUME_KEY = 'melody:volume'
+const REPEAT_KEY = 'melody:repeat'
+/* off -> all -> one, in the order the button cycles through them */
+const REPEAT_MODES = ['off', 'all', 'one']
 
 function normalizeQueue(items) {
   return (items || []).map((it) => ({
@@ -39,6 +42,16 @@ function readVolume() {
   return 1
 }
 
+function readRepeat() {
+  try {
+    const saved = localStorage.getItem(REPEAT_KEY)
+    if (REPEAT_MODES.indexOf(saved) !== -1) return saved
+  } catch {
+    /* private mode etc. */
+  }
+  return 'off'
+}
+
 export function PlayerProvider({ children }) {
   const toast = useToast()
   const { session } = useAuth()
@@ -55,9 +68,11 @@ export function PlayerProvider({ children }) {
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(readVolume)
+  const [repeat, setRepeat] = useState(readRepeat)
 
   const queueRef = useRef(queue)
   const indexRef = useRef(index)
+  const repeatRef = useRef(repeat)
   const loggedRef = useRef(false)
   const errorHandledRef = useRef(false)
   const failStreakRef = useRef(0)
@@ -66,6 +81,7 @@ export function PlayerProvider({ children }) {
 
   queueRef.current = queue
   indexRef.current = index
+  repeatRef.current = repeat
   sessionRef.current = session
   toastRef.current = toast
 
@@ -221,6 +237,28 @@ export function PlayerProvider({ children }) {
     }
   }, [])
 
+  /**
+   * Off -> All -> One -> Off. Only the mode itself changes: the queue, the
+   * current track, its position and the playing state are never touched.
+   */
+  const cycleRepeat = useCallback(() => {
+    const mode = REPEAT_MODES[(REPEAT_MODES.indexOf(repeatRef.current) + 1) % REPEAT_MODES.length]
+    repeatRef.current = mode
+    setRepeat(mode)
+    try {
+      localStorage.setItem(REPEAT_KEY, mode)
+    } catch {
+      /* private mode etc. */
+    }
+  }, [])
+
+  /* Repeat One: let the <audio> element restart the track at its end - it
+     needs no 'ended' event, no reload and it keeps the exact position/state. */
+  useEffect(() => {
+    const a = audioRef.current
+    if (a) a.loop = repeat === 'one'
+  }, [repeat])
+
   /* ---------------------------- audio events ---------------------------- */
 
   useEffect(() => {
@@ -248,7 +286,23 @@ export function PlayerProvider({ children }) {
     }
     const onError = () => fail()
     const onEnded = () => {
-      if (queueRef.current.length > 1) nextRef.current()
+      const mode = repeatRef.current
+      const q = queueRef.current
+      if (!q.length) return
+      // Repeat One never normally reaches this (the element loops on its own),
+      // but a mode switched at the very last moment still restarts the song.
+      if (mode === 'one') {
+        a.currentTime = 0
+        tryPlay()
+        return
+      }
+      // Repeat All: wrap the queue back to its first track.
+      if (mode === 'all') {
+        nextRef.current()
+        return
+      }
+      // Repeat Off: play through the queue, then stop on the last track.
+      if (indexRef.current < q.length - 1) nextRef.current()
       else {
         a.currentTime = 0
         setPlaying(false)
@@ -351,6 +405,7 @@ export function PlayerProvider({ children }) {
       time,
       duration,
       volume,
+      repeat,
       hasTrack: Boolean(current),
       playQueue,
       toggle,
@@ -358,8 +413,9 @@ export function PlayerProvider({ children }) {
       prev,
       seekPercent,
       setVolume,
+      cycleRepeat,
     }),
-    [queue, index, current, playing, loading, time, duration, volume, playQueue, toggle, next, prev, seekPercent, setVolume]
+    [queue, index, current, playing, loading, time, duration, volume, repeat, playQueue, toggle, next, prev, seekPercent, setVolume, cycleRepeat]
   )
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

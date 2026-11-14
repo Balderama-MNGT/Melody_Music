@@ -174,6 +174,13 @@ img { max-width: 100%; }
 .page h1, .page-title { font-size: clamp(24px, 2.4vw, 30px); font-weight: 700; margin-bottom: 20px; }
 .page h1 svg, .page-title svg { color: var(--accent); vertical-align: -4px; margin-right: 12px; }
 
+/* Page header: the title plus an optional line underneath (search results).
+   The search box itself lives in the topbar - this header replaces it. */
+.page-header { margin-bottom: 22px; }
+.page-header .page-title { margin-bottom: 4px; }
+.page-subtitle { margin: 0; color: var(--text-dim); font-size: 15px; overflow-wrap: anywhere; }
+.page-subtitle strong { color: var(--text); font-weight: 600; }
+
 .section-title {
     display: flex;
     align-items: center;
@@ -303,9 +310,9 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
 .search-input { padding-left: 42px !important; min-width: 0; }
 .search-form:focus-within .search-icon { color: var(--accent); }
 .search-btn { flex-shrink: 0; padding: 11px 20px; }
-.search-form-page, .search-form-library { margin-bottom: 22px; max-width: 640px; }
+.search-form-library { margin-bottom: 22px; max-width: 640px; }
 
-/* --- live search suggestions (topbar + search page) --- */
+/* --- live search suggestions (the topbar search field) --- */
 .search-field { position: relative; display: flex; flex: 1; min-width: 0; }
 .search-input.has-clear { padding-right: 38px; }
 .search-clear {
@@ -318,7 +325,9 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
 .search-suggest {
     position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 70;
     background: var(--bg-2); border: 1px solid #2c2c35; border-radius: 12px;
-    box-shadow: var(--shadow); padding: 6px; max-height: min(60vh, 420px);
+    box-shadow: var(--shadow); padding: 6px;
+    /* never long enough to reach the fixed player bar at the bottom */
+    max-height: min(420px, calc(100vh - var(--topbar-h) - var(--player-h) - 64px));
     overflow-y: auto; animation: suggest-in .16s ease;
 }
 @keyframes suggest-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -1025,6 +1034,10 @@ a.stat-card:hover { background: var(--bg-3); }
 .player-btn-play .icon-state-pause { display: none; }
 .player-btn-play.is-playing .icon-state-play { display: none; }
 .player-btn-play.is-playing .icon-state-pause { display: grid; }
+
+/* Repeat: Off stays muted, All/One light up green (One also swaps in the "1" icon) */
+.player-btn-repeat.is-active { color: var(--accent); }
+.player-btn-repeat.is-active:hover:not(:disabled) { color: var(--accent); background: var(--hover); }
 
 .player-seek { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 560px; }
 .player-time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 32px; text-align: center; }

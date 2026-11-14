@@ -10,6 +10,8 @@ import { fmtDuration } from '../lib/format.js'
  * markup. All transport state comes from PlayerContext, which owns the single
  * <audio> element so the music never stops while you move between pages.
  */
+const REPEAT_LABELS = { off: 'Off', all: 'All', one: 'One' }
+
 export default function Player() {
   const {
     current,
@@ -18,12 +20,14 @@ export default function Player() {
     time,
     duration,
     volume,
+    repeat,
     hasTrack,
     toggle,
     next,
     prev,
     seekPercent,
     setVolume,
+    cycleRepeat,
   } = usePlayer()
 
   const percent = duration > 0 ? Math.min(100, (time / duration) * 100) : 0
@@ -91,6 +95,18 @@ export default function Player() {
             onClick={next}
           >
             <Icon name="skip-forward" size={18} />
+          </button>
+
+          {/* Off -> All -> One: the mode decides what happens when a track ends */}
+          <button
+            type="button"
+            className={`btn-icon player-btn player-btn-repeat${repeat !== 'off' ? ' is-active' : ''}`}
+            title={`Repeat: ${REPEAT_LABELS[repeat] || REPEAT_LABELS.off}`}
+            aria-label={`Repeat: ${REPEAT_LABELS[repeat] || REPEAT_LABELS.off}`}
+            data-repeat={repeat}
+            onClick={cycleRepeat}
+          >
+            <Icon name={repeat === 'one' ? 'repeat-1' : 'repeat'} size={18} />
           </button>
         </div>
 
