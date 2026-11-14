@@ -63,27 +63,27 @@ export default function Library() {
         <Icon name="library" size={24} /> <span>Music Library</span>
       </h1>
 
-      <form className="search-form search-form-library" role="search" onSubmit={(e) => e.preventDefault()}>
+      {/* Filters the list on this page as you type. The app's search lives in
+          the sidebar, so this is a plain filter field: no search landmark, no
+          submit button (its button never did anything but swallow the form). */}
+      <div className="search-form search-form-library">
         <span className="search-icon" aria-hidden="true">
           <Icon name="search" size={18} />
         </span>
         <label className="visually-hidden" htmlFor="librarySearch">
-          Search songs, artists, albums
+          Filter your library
         </label>
         <input
           type="text"
           id="librarySearch"
           name="q"
           className="search-input"
-          placeholder="Search songs, artists, albums..."
+          placeholder="Filter your library..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoComplete="off"
         />
-        <button type="submit" className="btn btn-primary search-btn">
-          Search
-        </button>
-      </form>
+      </div>
 
       {state === 'loading' && <LoadingState label="Loading your library…" />}
       {state === 'error' && <ErrorState message={error} onRetry={load} />}

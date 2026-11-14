@@ -9,7 +9,7 @@ import { fetchLibraryTracks } from '../lib/db.js'
 /**
  * Search - pages/search.php: Audius results on top, your own library below.
  *
- * The app has exactly one search field - the one in the topbar - so this page
+ * The app has exactly one search field - the one in the sidebar - so this page
  * only renders a header plus the results for its ?q=. Two boxes with their own
  * autocomplete used to fight each other over the same query.
  */
@@ -57,7 +57,7 @@ export default function Search() {
         <EmptyState
           icon={<Icon name="search" size={22} />}
           title="Start searching"
-          text="Type a song, artist, album or keyword in the search bar at the top of the page to search Audius and your own library."
+          text="Type a song, artist, album or keyword in the search bar to search Audius and your own library."
         />
       ) : (
         <>

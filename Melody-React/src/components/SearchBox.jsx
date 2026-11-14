@@ -9,13 +9,20 @@ const MIN_TERM = 2
 const SUGGEST_LIMIT = 6
 
 /**
- * The shared search field - topbar and full search page.
+ * The app's one search field - it lives in the sidebar, so it travels to
+ * every page.
  *
- * On top of the plain box: live Audius suggestions (debounced while you
- * type, ArrowUp/ArrowDown to highlight, Enter to play the track, Esc to
- * close or clear), a clear (x) button and a spinner while suggestions
- * load. Enter without a highlighted suggestion submits to the results
- * page, exactly like the old form.
+ * On top of the plain box: live suggestions (debounced while you type,
+ * ArrowUp/ArrowDown to highlight, Enter to play the highlighted song or take
+ * the artist to the results, Esc to close or clear), a clear (x) button and
+ * a spinner while suggestions load.
+ *
+ * Two states are kept apart on purpose:
+ *   - typing   -> the list may open (only while the field is the one being
+ *                 typed in, so text the URL writes into it never pops up);
+ *   - submitted-> Enter took the user to the results; the list stays shut
+ *                 until they type again, and any request still in flight is
+ *                 cancelled so it cannot reopen over the results.
  */
 export default function SearchBox({
   value,
@@ -24,18 +31,22 @@ export default function SearchBox({
   inputId = 'searchBox',
   autoFocus = false,
   formClassName = '',
+  placeholder = 'Search songs, artists, albums...',
+  showSubmit = true,
 }) {
   const { playQueue } = usePlayer()
-  const [items, setItems] = useState([])
+  const [items, setItems] = useState([]) // song suggestions (playable)
+  const [artists, setArtists] = useState([]) // artist matches (navigate)
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
   const [busy, setBusy] = useState(false)
   const wrapRef = useRef(null)
   const inputRef = useRef(null)
   const reqRef = useRef(0)
-  /* bumped on focus so a field that already holds text (?q=... from the URL)
-     only fetches once someone actually goes to it */
-  const [focusTick, setFocusTick] = useState(0)
+  /* Set by Enter/submit and by an artist pick; cleared by the next keystroke.
+     While it is true the query has already been sent to the results page, so
+     the list must not come back on its own. */
+  const submittedRef = useRef(false)
 
   const term = value.trim()
 
@@ -44,12 +55,13 @@ export default function SearchBox({
     let alive = true
     const id = ++reqRef.current
 
-    /* Never pop the list open on its own - a field seeded from the URL (the
-       results page writes ?q= into the topbar) must not cover the page. Only
-       a field the user is actually in may fetch suggestions. */
+    /* Suggestions belong to typing. Never open them for text the URL seeded
+       into the field, never while someone is not actually in the field, and
+       never after a search has been submitted. */
     const inField = typeof document !== 'undefined' && document.activeElement === inputRef.current
-    if (term.length < MIN_TERM || !inField) {
+    if (term.length < MIN_TERM || submittedRef.current || !inField) {
       setItems([])
+      setArtists([])
       setActive(-1)
       setOpen(false)
       setBusy(false)
@@ -63,15 +75,28 @@ export default function SearchBox({
       audiusRequest({ action: 'search', q: term, limit: String(SUGGEST_LIMIT) })
         .then((data) => {
           if (!alive || reqRef.current !== id) return // stale response
+          /* The field was left or the search was submitted while we waited:
+             the answer is no longer wanted. */
+          if (submittedRef.current || document.activeElement !== inputRef.current) {
+            setItems([])
+            setArtists([])
+            setActive(-1)
+            setOpen(false)
+            setBusy(false)
+            return
+          }
           const tracks = data.tracks || []
+          const names = artistHits(tracks, term)
           setItems(tracks)
+          setArtists(names)
           setActive(-1)
-          setOpen(tracks.length > 0)
+          setOpen(tracks.length > 0 || names.length > 0)
           setBusy(false)
         })
         .catch(() => {
           if (!alive || reqRef.current !== id) return
           setItems([])
+          setArtists([])
           setActive(-1)
           setOpen(false)
           setBusy(false)
@@ -82,7 +107,7 @@ export default function SearchBox({
       alive = false
       clearTimeout(timer)
     }
-  }, [term, focusTick])
+  }, [term])
 
   /* Clicking anywhere outside closes the list. */
   useEffect(() => {
@@ -94,23 +119,41 @@ export default function SearchBox({
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
-  function pick(track) {
-    const i = items.findIndex((t) => t.external_id === track.external_id)
+  /* Songs first, artists after - one queue of options for the keyboard. */
+  const options = [
+    ...items.map((t) => ({ type: 'track', key: `t:${t.external_id}`, track: t })),
+    ...artists.map((a) => ({ type: 'artist', key: `a:${a.key}`, artist: a })),
+  ]
+
+  function pick(option) {
+    reqRef.current++ // nothing left in flight may reopen the list after a choice
     setOpen(false)
     setActive(-1)
+    if (option.type === 'artist') {
+      submittedRef.current = true // this navigates to the results, like Enter
+      onSubmit(option.artist.name)
+      return
+    }
+    const i = items.findIndex((t) => t.external_id === option.track.external_id)
     playQueue(items, i < 0 ? 0 : i) // queue the suggestions, start here
   }
 
   function submit(e) {
     e.preventDefault()
+    submittedRef.current = true // query sent: the list must not come back
+    reqRef.current++ // drop a response that is still on its way
     setOpen(false)
     setActive(-1)
+    setBusy(false)
     onSubmit(term)
   }
 
   function clear() {
+    submittedRef.current = false // editing again
     onChange('')
+    reqRef.current++
     setItems([])
+    setArtists([])
     setActive(-1)
     setOpen(false)
     setBusy(false)
@@ -119,24 +162,30 @@ export default function SearchBox({
 
   function onKeyDown(e) {
     if (e.key === 'Escape') {
+      /* Dismiss this layer only. While the shell listens for Escape too (it
+         closes the phone drawer), stopping the event here keeps the drawer
+         open so the field stays usable; with nothing left to dismiss, the
+         event carries on and the shell may close the drawer. */
       if (open) {
+        e.stopPropagation()
         setOpen(false)
         setActive(-1)
       } else if (value) {
+        e.stopPropagation()
         clear()
       }
       return
     }
-    if (!open || items.length === 0) return
+    if (!open || options.length === 0) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActive((i) => (i + 1) % items.length)
+      setActive((i) => (i + 1) % options.length)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setActive((i) => (i <= 0 ? items.length - 1 : i - 1))
+      setActive((i) => (i <= 0 ? options.length - 1 : i - 1))
     } else if (e.key === 'Enter' && active >= 0) {
       e.preventDefault()
-      pick(items[active])
+      pick(options[active])
     }
   }
 
@@ -160,14 +209,13 @@ export default function SearchBox({
           id={inputId}
           name="q"
           className={`search-input${value ? ' has-clear' : ''}`}
-          placeholder="Search songs, artists, albums..."
+          placeholder={placeholder}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          onFocus={() => {
-            focusedRef.current = true
-            setFocusTick((t) => t + 1)
+          onChange={(e) => {
+            submittedRef.current = false // typing again: suggestions allowed
+            onChange(e.target.value)
           }}
+          onKeyDown={onKeyDown}
           onBlur={(e) => {
             if (!wrapRef.current?.contains(e.relatedTarget)) {
               setOpen(false)
@@ -188,37 +236,56 @@ export default function SearchBox({
           </button>
         ) : null}
       </span>
-      <button type="submit" className="btn btn-primary search-btn">
-        Search
-      </button>
+      {showSubmit ? (
+        <button type="submit" className="btn btn-primary search-btn">
+          Search
+        </button>
+      ) : null}
 
-      {open && items.length > 0 ? (
+      {open && options.length > 0 ? (
         <div className="search-suggest" id={`${inputId}-suggest`} role="listbox" aria-label="Suggestions">
-          {items.map((track, i) => (
+          {options.map((option, i) => (
             <button
-              key={track.external_id}
+              key={option.key}
               id={`${inputId}-opt-${i}`}
               type="button"
               role="option"
               aria-selected={active === i}
-              className={`suggest-item${active === i ? ' is-active' : ''}`}
+              className={`suggest-item${active === i ? ' is-active' : ''}${option.type === 'artist' ? ' suggest-artist-item' : ''}`}
               onMouseEnter={() => setActive(i)}
               onMouseDown={(e) => e.preventDefault()} // keep focus in the box
-              onClick={() => pick(track)}
+              onClick={() => pick(option)}
             >
-              <CoverArt
-                track={track}
-                className="suggest-cover"
-                placeholderClassName="suggest-cover suggest-ph"
-                placeholderSize={14}
-              />
-              <span className="suggest-meta">
-                <span className="suggest-title">{track.title}</span>
-                <span className="suggest-artist">{track.artist}</span>
-              </span>
-              <span className="suggest-play" aria-hidden="true">
-                <Icon name="play" size={13} />
-              </span>
+              {option.type === 'artist' ? (
+                <>
+                  <span className="suggest-cover suggest-ph" aria-hidden="true">
+                    <Icon name="users" size={16} />
+                  </span>
+                  <span className="suggest-meta">
+                    <span className="suggest-title">{option.artist.name}</span>
+                    <span className="suggest-artist">Artist</span>
+                  </span>
+                  <span className="suggest-play" aria-hidden="true">
+                    <Icon name="chevron-right" size={14} />
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CoverArt
+                    track={option.track}
+                    className="suggest-cover"
+                    placeholderClassName="suggest-cover suggest-ph"
+                    placeholderSize={14}
+                  />
+                  <span className="suggest-meta">
+                    <span className="suggest-title">{option.track.title}</span>
+                    <span className="suggest-artist">{option.track.artist}</span>
+                  </span>
+                  <span className="suggest-play" aria-hidden="true">
+                    <Icon name="play" size={13} />
+                  </span>
+                </>
+              )}
             </button>
           ))}
           <button
@@ -226,7 +293,10 @@ export default function SearchBox({
             className="suggest-all"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
+              submittedRef.current = true
+              reqRef.current++
               setOpen(false)
+              setActive(-1)
               onSubmit(term)
             }}
           >
@@ -237,4 +307,27 @@ export default function SearchBox({
       ) : null}
     </form>
   )
+}
+
+/**
+ * The artists named in a search response that match the term.
+ *
+ * Derived from the songs we already fetched - no second API call, so typing
+ * stays one debounced request no matter how many kinds of suggestion show up.
+ */
+function artistHits(tracks, term) {
+  const needle = term.toLowerCase()
+  const seen = new Set()
+  const out = []
+  for (const t of tracks) {
+    const name = String(t.artist || '').trim()
+    const id = String(t.artist_id || '')
+    const key = (id || name).toLowerCase()
+    if (!name || seen.has(key)) continue
+    if (!name.toLowerCase().includes(needle)) continue
+    seen.add(key)
+    out.push({ key, name, id, cover: t.cover || '' })
+    if (out.length >= 2) break
+  }
+  return out
 }
