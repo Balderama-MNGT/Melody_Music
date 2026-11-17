@@ -74,7 +74,7 @@ export async function fetchPlaylists() {
   const db = requireSupabase()
   const { data, error } = await db
     .from('playlists')
-    .select('id, name, created_at, playlist_tracks(external_id, cover, added_at)')
+    .select('id, name, created_at, playlist_tracks(external_id, title, artist, cover, duration, added_at)')
     .order('created_at', { ascending: false })
   if (error) throw fail(errorMessage({ error }))
 
@@ -88,6 +88,7 @@ export async function fetchPlaylists() {
       name: p.name,
       created_at: p.created_at,
       track_count: tracks.length,
+      tracks: tracks.map(rowToTrack),
       trackIds: tracks.map((t) => t.external_id),
       cover: newest?.cover || '',
     }
@@ -297,6 +298,42 @@ export async function fetchLibraryBundle() {
 export async function fetchLibraryTracks() {
   const { tracks } = await fetchLibraryBundle()
   return tracks
+}
+
+/* ---------------------------- playback state --------------------------- */
+
+/** The signed-in user's saved player snapshot (RLS keeps it private). */
+export async function fetchPlaybackState() {
+  const db = requireSupabase()
+  const { data, error } = await db
+    .from('playback_state')
+    .select(
+      'current_track, queue, track_index, playback_mode, active_playlist, position_seconds, shuffle, repeat_mode, updated_at'
+    )
+    .maybeSingle()
+  if (error) throw fail(errorMessage({ error }))
+  return data || null
+}
+
+/** One row per user; never deletes anything, including on logout. */
+export async function savePlaybackState(userId, snapshot) {
+  if (!userId) return
+  const db = requireSupabase()
+  const row = {
+    user_id: userId,
+    current_track: snapshot.current || null,
+    queue: Array.isArray(snapshot.queue) ? snapshot.queue : [],
+    track_index: Number.isFinite(snapshot.index) ? snapshot.index : -1,
+    playback_mode: snapshot.playbackMode === 'playlist' ? 'playlist' : 'recommendations',
+    active_playlist: snapshot.activePlaylist || null,
+    position_seconds: Math.max(0, Number(snapshot.time) || 0),
+    shuffle: Boolean(snapshot.shuffle),
+    repeat_mode: ['off', 'all', 'one'].includes(snapshot.repeat) ? snapshot.repeat : 'off',
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await db.from('playback_state').upsert(row, { onConflict: 'user_id' })
+  if (error) throw fail(errorMessage({ error }))
+  return row
 }
 
 /* -------------------------------- counts ------------------------------ */

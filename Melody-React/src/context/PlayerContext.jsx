@@ -12,7 +12,7 @@ import { useAuth } from './AuthContext.jsx'
 import { useToast } from './ToastContext.jsx'
 import { isYouTubeId } from '../lib/api.js'
 import { YtPlayer, YT_STATE } from '../lib/ytPlayer.js'
-import { recordPlaySession } from '../lib/db.js'
+import { fetchPlaybackState, recordPlaySession, savePlaybackState } from '../lib/db.js'
 import { youtubeRequest } from '../lib/api.js'
 import { pickRecommendations, recommendationErrorMessage } from '../lib/recommendations.js'
 
@@ -144,6 +144,7 @@ export function PlayerProvider({ children }) {
   const repeatRef = useRef(repeat)
   const shuffleRef = useRef(shuffle)
   const playbackModeRef = useRef(playbackMode)
+  const activePlaylistRef = useRef(activePlaylist)
   /* A stable shuffled order over the CURRENT queue: one pass plays every song
      before any of them repeats. Rebuilt only when the queue or seed changes. */
   const shuffleOrderRef = useRef([])
@@ -159,6 +160,7 @@ export function PlayerProvider({ children }) {
   /* Honour a 429/503 Retry-After instead of firing another search per render. */
   const recRetryUntilRef = useRef(0)
   const durationRef = useRef(duration)
+  const timeRef = useRef(time)
   const playingRef = useRef(playing)
   const errorHandledRef = useRef(false)
   const failStreakRef = useRef(0)
@@ -172,13 +174,22 @@ export function PlayerProvider({ children }) {
   const sessionIdRef = useRef('')
   const recordedRef = useRef(false)
   const playTimerRef = useRef(0)
+  /* Playback persistence: last signed-in user (survives logout), an in-flight
+     restore flag, and a seek queued until the restored video is ready. */
+  const lastUserIdRef = useRef(null)
+  const restoringRef = useRef(false)
+  const restoreGenerationRef = useRef(0)
+  const pendingSeekRef = useRef(0)
+  const saveTimerRef = useRef(0)
 
   queueRef.current = queue
   indexRef.current = index
   repeatRef.current = repeat
   shuffleRef.current = shuffle
   playbackModeRef.current = playbackMode
+  activePlaylistRef.current = activePlaylist
   durationRef.current = duration
+  timeRef.current = time
   playingRef.current = playing
   sessionRef.current = session
   toastRef.current = toast
@@ -238,6 +249,107 @@ export function PlayerProvider({ children }) {
     const yt = ytRef.current
     if (yt) yt.load(videoId, autoplay)
   }, [ensurePlayerVisible])
+
+  /** Apply a saved playback position once the restored video can be seeked. */
+  const applyPendingSeek = useCallback(() => {
+    const position = pendingSeekRef.current
+    if (!position || !ytRef.current) return
+    ytRef.current.seek(position)
+    pendingSeekRef.current = 0
+  }, [])
+
+  /** Everything needed to recreate this session, read from refs so it stays
+      accurate even when called from an unmount/logout effect. */
+  const playerSnapshot = useCallback(
+    () => ({
+      current: queueRef.current[indexRef.current] || null,
+      queue: queueRef.current,
+      index: indexRef.current,
+      time: ytRef.current && typeof ytRef.current.getTime === 'function'
+        ? ytRef.current.getTime()
+        : timeRef.current,
+      repeat: repeatRef.current,
+      shuffle: shuffleRef.current,
+      playbackMode: playbackModeRef.current,
+      activePlaylist: activePlaylistRef.current,
+    }),
+    []
+  )
+
+  const persistPlayback = useCallback(
+    async (userId, snapshot = playerSnapshot()) => {
+      if (!userId || !snapshot || !snapshot.current || !snapshot.current.external_id) return
+      try {
+        await savePlaybackState(userId, snapshot)
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('[melody] could not save playback state', err?.message)
+      }
+    },
+    [playerSnapshot]
+  )
+
+  /** Restore a saved session cued (never autoplay) so browser autoplay rules
+      are respected. The play button stays available and no new play record is
+      created for the restored session. */
+  const restorePlayback = useCallback(
+    async (userId, generation) => {
+      restoringRef.current = true
+      try {
+        const saved = await fetchPlaybackState()
+        if (!saved || generation !== restoreGenerationRef.current) return
+        const restoredQueue = normalizeQueue(saved.queue)
+        const savedTrack = saved.current_track || null
+        if (!restoredQueue.length || !savedTrack || !savedTrack.external_id) return
+
+        let index = Number(saved.track_index)
+        if (!Number.isFinite(index) || index < 0 || index >= restoredQueue.length) {
+          index = restoredQueue.findIndex((t) => t.external_id === savedTrack.external_id)
+        }
+        if (index < 0) return
+
+        setQueue(restoredQueue)
+        queueRef.current = restoredQueue
+        setIndex(index)
+        indexRef.current = index
+        setTime(0)
+        timeRef.current = 0
+        setDuration(Number(restoredQueue[index].duration) || 0)
+        setPlaying(false)
+        setLoading(false)
+        const savedRepeat = ['off', 'all', 'one'].includes(saved.repeat_mode) ? saved.repeat_mode : 'off'
+        const savedShuffle = Boolean(saved.shuffle)
+        setRepeat(savedRepeat)
+        setShuffle(savedShuffle)
+        repeatRef.current = savedRepeat
+        shuffleRef.current = savedShuffle
+        try {
+          localStorage.setItem(REPEAT_KEY, savedRepeat)
+          localStorage.setItem(SHUFFLE_KEY, savedShuffle ? 'on' : 'off')
+        } catch {
+          /* private mode */
+        }
+        setPlaybackMode(saved.playback_mode === 'playlist' ? 'playlist' : 'recommendations')
+        setActivePlaylist(saved.active_playlist || null)
+        setUpNext([])
+        upNextRef.current = []
+        seenRef.current = []
+        setSeenIds([])
+        errorHandledRef.current = false
+        failStreakRef.current = 0
+        recordedRef.current = false
+        clearTimeout(playTimerRef.current)
+
+        pendingSeekRef.current = Math.max(0, Number(saved.position_seconds) || 0)
+        setHasVideo(true)
+        startVideo(restoredQueue[index].external_id, false)
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('[melody] could not restore playback state', err?.message)
+      } finally {
+        if (generation === restoreGenerationRef.current) restoringRef.current = false
+      }
+    },
+    [startVideo]
+  )
 
   const tryPlay = useCallback(() => {
     ytRef.current?.play()
@@ -465,6 +577,28 @@ export function PlayerProvider({ children }) {
       load(i, true)
     },
     [load]
+  )
+
+  /** Replace the queue/context for the track that is ALREADY loaded. Used by
+      Jump Back In so a live song can adopt its playlist queue without restarting. */
+  const adoptQueue = useCallback(
+    (items, startIndex = 0, source = null) => {
+      const normalized = normalizeQueue(items)
+      if (!normalized.length) return
+      const fromPlaylist = Boolean(source && source.type === 'playlist' && source.id)
+      setPlaybackMode(fromPlaylist ? 'playlist' : 'recommendations')
+      setActivePlaylist(
+        fromPlaylist ? { id: String(source.id), name: String(source.name || 'Playlist') } : null
+      )
+      upNextRef.current = []
+      setUpNext([])
+      const i = Math.max(0, Math.min(Number(startIndex) || 0, normalized.length - 1))
+      queueRef.current = normalized
+      indexRef.current = i
+      setQueue(normalized)
+      setIndex(i)
+    },
+    []
   )
 
   /**
@@ -761,6 +895,7 @@ export function PlayerProvider({ children }) {
   const handleState = useCallback(
     (state, videoId) => {
       if (state === YT_STATE.PLAYING) {
+        applyPendingSeek()
         setPlaying(true)
         setLoading(false)
         failStreakRef.current = 0
@@ -795,11 +930,12 @@ export function PlayerProvider({ children }) {
         handleEnded(videoId)
         return
       }
+      if (state === YT_STATE.CUED) applyPendingSeek()
       // UNSTARTED / CUED: nothing is moving yet.
       setPlaying(false)
       setLoading(false)
     },
-    [handleEnded, schedulePlayRecord]
+    [handleEnded, schedulePlayRecord, applyPendingSeek]
   )
 
   /* Video-level failure: deleted, private, restricted or not embeddable.
@@ -843,6 +979,7 @@ export function PlayerProvider({ children }) {
   useEffect(() => {
     if (!hasVideo || ytRef.current || !hostRef.current) return undefined
     const yt = new YtPlayer(hostRef.current, {
+      onReady: applyPendingSeek,
       onState: handleState,
       onVideoError: handleVideoError,
       onPlayerError: handlePlayerError,
@@ -853,7 +990,7 @@ export function PlayerProvider({ children }) {
     const pending = pendingRef.current
     if (pending) yt.load(pending.videoId, pending.autoplay)
     return undefined
-  }, [hasVideo, handleState, handleVideoError, handlePlayerError])
+  }, [hasVideo, handleState, handleVideoError, handlePlayerError, applyPendingSeek])
 
   /* Anything pinned above the player bar (the toast) must stay clear of the
      video panel: style.css moves it up while this class is on <body>. */
@@ -958,35 +1095,82 @@ export function PlayerProvider({ children }) {
   const nextRef = useRef(next)
   nextRef.current = next
 
-  /* ----------------------- signed out -> silence ----------------------- */
-  // The player sits above the routes, so it outlives a logout - watch the
-  // session and stop everything the moment it goes away (logout or expiry).
+  /* ------------------- per-user persistence + session ------------------- */
+  /* Save after any meaningful player change. Debounced so the 250ms position
+     tick does not write on every frame; a logout saves synchronously below. */
   useEffect(() => {
-    if (session) return
-    errorHandledRef.current = true // stopping is not a playback failure
-    pendingRef.current = null
-    ytRef.current?.stop()
-    queueRef.current = []
-    setQueue([])
-    indexRef.current = -1
-    setIndex(-1)
-    setPlaying(false)
-    setLoading(false)
-    setTime(0)
-    setDuration(0)
-    setHasVideo(false)
-    setExpanded(false)
-    upNextRef.current = []
-    setUpNext([])
-    setPlaybackMode('recommendations')
-    setActivePlaylist(null)
-    seenRef.current = []
-    setSeenIds([])
-    recordedRef.current = false
-    clearTimeout(playTimerRef.current)
-    failStreakRef.current = 0
-    legacyWarnedRef.current = false
-  }, [session])
+    const userId = session?.user?.id ?? null
+    if (!userId || restoringRef.current || pendingSeekRef.current > 0) return undefined
+    clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => persistPlayback(userId), 800)
+    return () => clearTimeout(saveTimerRef.current)
+  }, [
+    session?.user?.id,
+    current,
+    queue,
+    index,
+    playing,
+    repeat,
+    shuffle,
+    playbackMode,
+    activePlaylist,
+    persistPlayback,
+  ])
+
+  /* Periodic checkpoint for playback position. The debounced effect above
+     deliberately does NOT depend on `time` (the 250ms tick would cancel it). */
+  useEffect(() => {
+    const userId = session?.user?.id ?? null
+    if (!userId || !current || restoringRef.current) return undefined
+    const id = setInterval(() => {
+      if (!restoringRef.current && pendingSeekRef.current <= 0) persistPlayback(userId)
+    }, 5000)
+    return () => clearInterval(id)
+  }, [session?.user?.id, current, persistPlayback])
+
+  /* Session transitions: save the outgoing user's state BEFORE touching the
+     player, then restore the incoming user (or silence on logout). Nothing is
+     deleted from the database on logout. */
+  useEffect(() => {
+    const userId = session?.user?.id ?? null
+    const previous = lastUserIdRef.current
+    const generation = ++restoreGenerationRef.current
+    if (previous && previous !== userId) void persistPlayback(previous)
+
+    if (!userId) {
+      errorHandledRef.current = true // stopping is not a playback failure
+      clearTimeout(playTimerRef.current)
+      clearTimeout(saveTimerRef.current)
+      pendingRef.current = null
+      ytRef.current?.stop()
+      queueRef.current = []
+      setQueue([])
+      indexRef.current = -1
+      setIndex(-1)
+      setPlaying(false)
+      setLoading(false)
+      setTime(0)
+      timeRef.current = 0
+      setDuration(0)
+      setHasVideo(false)
+      setExpanded(false)
+      upNextRef.current = []
+      setUpNext([])
+      setPlaybackMode('recommendations')
+      setActivePlaylist(null)
+      seenRef.current = []
+      setSeenIds([])
+      recordedRef.current = false
+      pendingSeekRef.current = 0
+      failStreakRef.current = 0
+      legacyWarnedRef.current = false
+      lastUserIdRef.current = null
+      return
+    }
+
+    lastUserIdRef.current = userId
+    void restorePlayback(userId, generation)
+  }, [session?.user?.id, persistPlayback, restorePlayback])
 
   /* Space toggles playback (unless typing, or a dialog owns the keyboard). */
   useEffect(() => {
@@ -1028,6 +1212,7 @@ export function PlayerProvider({ children }) {
       hostRef,
       panelRef,
       playQueue,
+      adoptQueue,
       playAt,
       enqueueAndPlay,
       setRecommendationQueue,
@@ -1043,7 +1228,7 @@ export function PlayerProvider({ children }) {
       cycleRepeat,
       toggleShuffle,
     }),
-    [queue, index, current, playing, loading, time, duration, repeat, shuffle, playbackMode, activePlaylist, hasVideo, expanded, upNext, recommendationError, seenIds, openPlayer, closePlayer, playQueue, playAt, enqueueAndPlay, setRecommendationQueue, refillRecommendations, clearRecommendationError, toggle, next, prev, seekPercent, cycleRepeat, toggleShuffle]
+    [queue, index, current, playing, loading, time, duration, repeat, shuffle, playbackMode, activePlaylist, hasVideo, expanded, upNext, recommendationError, seenIds, openPlayer, closePlayer, playQueue, adoptQueue, playAt, enqueueAndPlay, setRecommendationQueue, refillRecommendations, clearRecommendationError, toggle, next, prev, seekPercent, cycleRepeat, toggleShuffle]
   )
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

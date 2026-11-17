@@ -6,6 +6,7 @@ import { AddToPlaylistButton } from './PlaylistPicker.jsx'
 import Recommendations from './Recommendations.jsx'
 import PlaylistSongs from './PlaylistSongs.jsx'
 import { usePlayer } from '../context/PlayerContext.jsx'
+import { usePlaylists } from '../context/PlaylistsContext.jsx'
 import { fmtDuration } from '../lib/format.js'
 
 /**
@@ -26,6 +27,7 @@ export default function ExpandedPlayer() {
     repeat,
     shuffle,
     playbackMode,
+    activePlaylist,
     hasTrack,
     toggle,
     next,
@@ -35,6 +37,18 @@ export default function ExpandedPlayer() {
     toggleShuffle,
     closePlayer,
   } = usePlayer()
+  const { playlists } = usePlaylists()
+
+  /* Membership comes from the user's real playlists, not from the transport
+     mode flag: a song started from search can still belong to a playlist. */
+  const activeSaved =
+    playbackMode === 'playlist' && activePlaylist
+      ? playlists.find((p) => p.id === activePlaylist.id) || activePlaylist
+      : null
+  const memberPlaylist =
+    activeSaved ||
+    (current && playlists.find((p) => (p.trackIds || []).includes(current.external_id))) ||
+    null
 
   useEffect(() => {
     /* Open at the top of the expanded view (the document scrolls now). */
@@ -195,7 +209,11 @@ export default function ExpandedPlayer() {
         </div>
 
         {/* One section, chosen by playback context - never both at once. */}
-        {playbackMode === 'playlist' ? <PlaylistSongs /> : <Recommendations track={current} />}
+        {memberPlaylist ? (
+          <PlaylistSongs playlist={memberPlaylist} />
+        ) : (
+          <Recommendations track={current} />
+        )}
       </div>
     </div>
   )

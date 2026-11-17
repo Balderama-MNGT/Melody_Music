@@ -7,17 +7,27 @@ import { usePlayer } from '../context/PlayerContext.jsx'
  * playlist is the active playback context. It lists ONLY the active playlist
  * queue in its saved order and never fetches recommendations.
  */
-export default function PlaylistSongs() {
-  const { queue, current, activePlaylist, playAt } = usePlayer()
+export default function PlaylistSongs({ playlist = null }) {
+  const { queue, current, activePlaylist, playAt, playQueue } = usePlayer()
+  const name = playlist?.name || activePlaylist?.name || 'Playlist Songs'
+  const tracks = playlist?.tracks?.length ? playlist.tracks : queue
+
+  const play = (track, i) => {
+    if (playlist?.id && playlist.tracks?.length) {
+      playQueue(tracks, i, { type: 'playlist', id: playlist.id, name: playlist.name })
+    } else {
+      playAt(i)
+    }
+  }
 
   return (
     <section className="np-recs" aria-label="Playlist songs">
       <div className="np-recs-head">
-        <h3>{activePlaylist?.name || 'Playlist Songs'}</h3>
-        <span className="np-recs-sub">{queue.length} songs</span>
+        <h3>{name}</h3>
+        <span className="np-recs-sub">{tracks.length} songs</span>
       </div>
       <div className="np-recs-list">
-        {queue.map((track, i) => {
+        {tracks.map((track, i) => {
           const isCurrent = Boolean(current && current.external_id === track.external_id)
           return (
             <button
@@ -27,7 +37,7 @@ export default function PlaylistSongs() {
               className={`np-rec-item${isCurrent ? ' is-current' : ''}`}
               aria-current={isCurrent ? 'true' : undefined}
               title={`Play ${track.title} by ${track.artist}`}
-              onClick={() => playAt(i)}
+              onClick={() => play(track, i)}
             >
               <span className="np-rec-art">
                 <CoverArt

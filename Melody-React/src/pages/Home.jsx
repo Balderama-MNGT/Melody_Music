@@ -26,7 +26,7 @@ import { playSection } from '../lib/sections.js'
  */
 export default function Home() {
   const { session, profile } = useAuth()
-  const { playQueue, current, playing, loading, toggle } = usePlayer()
+  const { playQueue, adoptQueue, current, activePlaylist, playing, loading, toggle } = usePlayer()
   const { playlists: sharedPlaylists } = usePlaylists()
   const toast = useToast()
 
@@ -82,31 +82,63 @@ export default function Home() {
 
   const name = profile?.username || session?.user?.user_metadata?.username || 'there'
 
-  /* "Jump back in" mirrors the real player: whatever the shared <audio> element
-     is loaded wins, so the card always shows the live track (and its state).
-     With nothing playing it falls back to the newest entry of your history. */
+  /* Jump Back In follows the real player, then the newest history entry. When
+     that song belongs to one of the user's playlists, show THAT playlist and
+     resume its queue instead of a generic history/recommendation source. */
   const live = Boolean(current)
   const resume = current || recent[0] || null
+  const resumeId = resume?.external_id || null
+  const inActive =
+    Boolean(activePlaylist && resumeId) &&
+    (sharedPlaylists.find((p) => p.id === activePlaylist.id)?.trackIds || []).includes(resumeId)
+  const resumePlaylist = inActive
+    ? sharedPlaylists.find((p) => p.id === activePlaylist.id)
+    : sharedPlaylists.find((p) => resumeId && (p.trackIds || []).includes(resumeId))
   const resumeLabel = live
     ? loading
       ? 'Loading…'
       : playing
-        ? 'Now playing'
-        : 'Paused'
-    : 'Jump back in'
+        ? `Now playing${resumePlaylist ? ` • ${resumePlaylist.name}` : ''}`
+        : `Paused${resumePlaylist ? ` • ${resumePlaylist.name}` : ''}`
+    : resumePlaylist
+      ? `Jump back in: ${resumePlaylist.name}`
+      : 'Jump back in'
+  const resumeCover = resumePlaylist?.cover || resume?.cover || ''
 
   /** Play every track of one playlist (used by the quick-access tiles). */
-  async function playPlaylist(playlist) {
+  async function playPlaylist(playlist, startIndex = 0) {
     try {
       const tracks = await fetchPlaylistTracks(playlist.id)
       if (!tracks.length) {
         toast(`“${playlist.name}” has no tracks yet.`, true)
         return
       }
-      playQueue(tracks, 0, { type: 'playlist', id: playlist.id, name: playlist.name })
+      playQueue(tracks, startIndex, { type: 'playlist', id: playlist.id, name: playlist.name })
     } catch (err) {
       toast(err?.message || 'Could not open that playlist.', true)
     }
+  }
+
+  /** Jump Back In: resume the correct playlist queue at the remembered song. */
+  async function openResume() {
+    if (resumePlaylist && resumeId) {
+      try {
+        const tracks = await fetchPlaylistTracks(resumePlaylist.id)
+        const at = Math.max(0, tracks.findIndex((t) => t.external_id === resumeId))
+        const source = { type: 'playlist', id: resumePlaylist.id, name: resumePlaylist.name }
+        if (live) {
+          adoptQueue(tracks, at, source) // no restart: same video stays playing
+          toggle() // the card still pauses/resumes the live player
+        } else {
+          playQueue(tracks, at, source)
+        }
+      } catch (err) {
+        toast(err?.message || 'Could not resume that playlist.', true)
+      }
+      return
+    }
+    if (live) toggle()
+    else playQueue(recent, 0)
   }
 
   const quick = [
@@ -175,20 +207,15 @@ export default function Home() {
               live && loading ? ' is-loading' : ''
             }`}
             href="/app/history"
-            aria-label={
-              live
-                ? `${playing ? 'Pause' : 'Play'} ${resume.title}${resume.artist ? ` by ${resume.artist}` : ''}`
-                : `Jump back in: play ${resume.title}`
-            }
+            aria-label={resumePlaylist ? `Resume ${resumePlaylist.name}` : `Jump back in: play ${resume.title}`}
             onClick={(e) => {
               e.preventDefault()
-              if (live) toggle()      // a track is loaded: drive the real player
-              else playQueue(recent, 0) // nothing loaded yet: restart the history queue
+              openResume()
             }}
           >
             <span className="home-resume-cover">
               <CoverArt
-                track={resume}
+                track={resumeCover ? { ...resume, cover: resumeCover } : resume}
                 className="home-resume-img"
                 placeholderClassName="home-resume-img placeholder-thumb"
                 placeholderSize={24}
@@ -211,7 +238,10 @@ export default function Home() {
             <span className="home-resume-text">
               <span className="home-resume-label">{resumeLabel}</span>
               <span className="home-resume-title">{resume.title}</span>
-              <span className="home-resume-artist">{resume.artist || 'Unknown artist'}</span>
+              <span className="home-resume-artist">
+                {resume.artist || 'Unknown artist'}
+                {resumePlaylist ? ` • ${resumePlaylist.track_count} songs` : ''}
+              </span>
             </span>
             <span className="home-resume-play" aria-hidden="true">
               <Icon name={playing ? 'pause' : 'play'} size={20} />
