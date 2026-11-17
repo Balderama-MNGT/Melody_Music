@@ -180,6 +180,9 @@ export class YtPlayer {
            message, the id stops a late event from being blamed on whatever
            track is selected by the time it arrives. */
         onError: (e) => this.handlers.onVideoError?.(videoErrorOf(e, this.videoId)),
+        /* The IFrame API reports this when a scripted play is blocked by the
+           browser. Keep the UI in sync instead of claiming playback started. */
+        onAutoplayBlocked: () => this.handlers.onAutoplayBlocked?.(),
       },
     })
   }
@@ -214,15 +217,20 @@ export class YtPlayer {
     this.pendingLoad = null
     this.send((p) => {
       if (want.autoplay) p.loadVideoById(want.videoId)
-      else p.cueVideoById(want.videoId)
+      else if (want.startSeconds > 0) {
+        /* Object syntax cues at a saved position WITHOUT starting playback.
+           seekTo() from a cued player would start the video. */
+        p.cueVideoById({ videoId: want.videoId, startSeconds: want.startSeconds })
+      } else p.cueVideoById(want.videoId)
     })
   }
 
-  /** autoplay -> load and start; otherwise load and wait for the play button. */
-  load(videoId, autoplay) {
+  /** autoplay -> load and start; otherwise cue and wait for the Play button.
+      startSeconds is only used for restoring a saved position while cued. */
+  load(videoId, autoplay, startSeconds = 0) {
     this.videoId = videoId
     /* Newest request wins - it replaces anything still waiting for onReady. */
-    this.pendingLoad = { videoId, autoplay }
+    this.pendingLoad = { videoId, autoplay, startSeconds: Math.max(0, Number(startSeconds) || 0) }
     if (this.player) this.runPendingLoad()
   }
 

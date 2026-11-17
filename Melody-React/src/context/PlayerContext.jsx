@@ -179,7 +179,6 @@ export function PlayerProvider({ children }) {
   const lastUserIdRef = useRef(null)
   const restoringRef = useRef(false)
   const restoreGenerationRef = useRef(0)
-  const pendingSeekRef = useRef(0)
   const saveTimerRef = useRef(0)
 
   queueRef.current = queue
@@ -243,20 +242,12 @@ export function PlayerProvider({ children }) {
   }, [])
 
   /** Ask the player for a video now, or remember it until the player exists. */
-  const startVideo = useCallback((videoId, autoplay) => {
+  const startVideo = useCallback((videoId, autoplay, startSeconds = 0) => {
     if (autoplay) ensurePlayerVisible()
-    pendingRef.current = { videoId, autoplay }
+    pendingRef.current = { videoId, autoplay, startSeconds }
     const yt = ytRef.current
-    if (yt) yt.load(videoId, autoplay)
+    if (yt) yt.load(videoId, autoplay, startSeconds)
   }, [ensurePlayerVisible])
-
-  /** Apply a saved playback position once the restored video can be seeked. */
-  const applyPendingSeek = useCallback(() => {
-    const position = pendingSeekRef.current
-    if (!position || !ytRef.current) return
-    ytRef.current.seek(position)
-    pendingSeekRef.current = 0
-  }, [])
 
   /** Everything needed to recreate this session, read from refs so it stays
       accurate even when called from an unmount/logout effect. */
@@ -339,9 +330,11 @@ export function PlayerProvider({ children }) {
         recordedRef.current = false
         clearTimeout(playTimerRef.current)
 
-        pendingSeekRef.current = Math.max(0, Number(saved.position_seconds) || 0)
+        /* Cue at the saved position in one call. A later seekTo() on a cued
+           player would START playback, which must never happen on refresh. */
+        const startSeconds = Math.max(0, Number(saved.position_seconds) || 0)
         setHasVideo(true)
-        startVideo(restoredQueue[index].external_id, false)
+        startVideo(restoredQueue[index].external_id, false, startSeconds)
       } catch (err) {
         if (import.meta.env.DEV) console.warn('[melody] could not restore playback state', err?.message)
       } finally {
@@ -790,7 +783,10 @@ export function PlayerProvider({ children }) {
     const total = yt.getDuration() || durationRef.current
     if (!total || !isFinite(total)) return
     yt.seek((Number(percent) / 100) * total)
-  }, [])
+    /* A seek is a deliberate position change: save it immediately instead of
+       waiting for the next debounce/interval checkpoint. */
+    void persistPlayback(sessionRef.current?.user?.id ?? null)
+  }, [persistPlayback])
 
   /**
    * Playing a recommendation is an explicit switch back to Recommendation
@@ -895,7 +891,6 @@ export function PlayerProvider({ children }) {
   const handleState = useCallback(
     (state, videoId) => {
       if (state === YT_STATE.PLAYING) {
-        applyPendingSeek()
         setPlaying(true)
         setLoading(false)
         failStreakRef.current = 0
@@ -930,12 +925,11 @@ export function PlayerProvider({ children }) {
         handleEnded(videoId)
         return
       }
-      if (state === YT_STATE.CUED) applyPendingSeek()
       // UNSTARTED / CUED: nothing is moving yet.
       setPlaying(false)
       setLoading(false)
     },
-    [handleEnded, schedulePlayRecord, applyPendingSeek]
+    [handleEnded, schedulePlayRecord]
   )
 
   /* Video-level failure: deleted, private, restricted or not embeddable.
@@ -973,24 +967,32 @@ export function PlayerProvider({ children }) {
     [fail]
   )
 
+  /* A browser can block a scripted play. Never claim we are playing in that
+     case - the visible Play button remains the user's way to continue. */
+  const handleAutoplayBlocked = useCallback(() => {
+    setPlaying(false)
+    setLoading(false)
+    toastRef.current?.('Playback was blocked by your browser. Press Play to continue.')
+  }, [])
+
   /* --------------------- create the player once it shows ------------------ */
   // Runs only after the panel is on screen (hasVideo flips in the same commit
   // that makes it visible), which is what YouTube's autoplay rules ask for.
   useEffect(() => {
     if (!hasVideo || ytRef.current || !hostRef.current) return undefined
     const yt = new YtPlayer(hostRef.current, {
-      onReady: applyPendingSeek,
       onState: handleState,
       onVideoError: handleVideoError,
       onPlayerError: handlePlayerError,
+      onAutoplayBlocked: handleAutoplayBlocked,
     })
     ytRef.current = yt
     /* No in-app volume control: the listener uses their device volume. */
     yt.setVolume(1)
     const pending = pendingRef.current
-    if (pending) yt.load(pending.videoId, pending.autoplay)
+    if (pending) yt.load(pending.videoId, pending.autoplay, pending.startSeconds || 0)
     return undefined
-  }, [hasVideo, handleState, handleVideoError, handlePlayerError, applyPendingSeek])
+  }, [hasVideo, handleState, handleVideoError, handlePlayerError, handleAutoplayBlocked])
 
   /* Anything pinned above the player bar (the toast) must stay clear of the
      video panel: style.css moves it up while this class is on <body>. */
@@ -1100,7 +1102,7 @@ export function PlayerProvider({ children }) {
      tick does not write on every frame; a logout saves synchronously below. */
   useEffect(() => {
     const userId = session?.user?.id ?? null
-    if (!userId || restoringRef.current || pendingSeekRef.current > 0) return undefined
+    if (!userId || restoringRef.current) return undefined
     clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => persistPlayback(userId), 800)
     return () => clearTimeout(saveTimerRef.current)
@@ -1123,7 +1125,7 @@ export function PlayerProvider({ children }) {
     const userId = session?.user?.id ?? null
     if (!userId || !current || restoringRef.current) return undefined
     const id = setInterval(() => {
-      if (!restoringRef.current && pendingSeekRef.current <= 0) persistPlayback(userId)
+      if (!restoringRef.current) persistPlayback(userId)
     }, 5000)
     return () => clearInterval(id)
   }, [session?.user?.id, current, persistPlayback])
@@ -1161,7 +1163,6 @@ export function PlayerProvider({ children }) {
       seenRef.current = []
       setSeenIds([])
       recordedRef.current = false
-      pendingSeekRef.current = 0
       failStreakRef.current = 0
       legacyWarnedRef.current = false
       lastUserIdRef.current = null

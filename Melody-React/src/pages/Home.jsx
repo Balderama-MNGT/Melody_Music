@@ -103,7 +103,13 @@ export default function Home() {
     : resumePlaylist
       ? `Jump back in: ${resumePlaylist.name}`
       : 'Jump back in'
-  const resumeCover = resumePlaylist?.cover || resume?.cover || ''
+  /* The card must show the ACTIVE video's artwork, never a playlist's cover
+     (that image belongs to whichever song was added most recently). */
+  const resumeCover =
+    resume?.cover ||
+    (resume?.external_id && /^[A-Za-z0-9_-]{11}$/.test(resume.external_id)
+      ? `https://i.ytimg.com/vi/${resume.external_id}/mqdefault.jpg`
+      : '')
 
   /** Play every track of one playlist (used by the quick-access tiles). */
   async function playPlaylist(playlist, startIndex = 0) {
