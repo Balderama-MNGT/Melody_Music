@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext.jsx'
 import { ToastProvider } from './context/ToastContext.jsx'
 import { FavoritesProvider } from './context/FavoritesContext.jsx'
+import { PlaylistsProvider } from './context/PlaylistsContext.jsx'
 import { PlayerProvider } from './context/PlayerContext.jsx'
 import Layout from './components/Layout.jsx'
 import Landing from './pages/Landing.jsx'
@@ -54,7 +55,8 @@ export default function App() {
     <ToastProvider>
       <AuthProvider>
         <FavoritesProvider>
-          <PlayerProvider>
+          <PlaylistsProvider>
+            <PlayerProvider>
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route
@@ -95,7 +97,8 @@ export default function App() {
               <Route path="/privacy" element={<Privacy />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
-          </PlayerProvider>
+            </PlayerProvider>
+          </PlaylistsProvider>
         </FavoritesProvider>
       </AuthProvider>
     </ToastProvider>

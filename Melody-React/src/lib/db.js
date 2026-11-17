@@ -88,6 +88,7 @@ export async function fetchPlaylists() {
       name: p.name,
       created_at: p.created_at,
       track_count: tracks.length,
+      trackIds: tracks.map((t) => t.external_id),
       cover: newest?.cover || '',
     }
   })

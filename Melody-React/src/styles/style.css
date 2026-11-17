@@ -1391,6 +1391,8 @@ button.song-card-cover:focus-visible { outline: 2px solid var(--accent); outline
 button.track-play { border: 0; cursor: pointer; font: inherit; }
 .btn-addpl { color: var(--muted); }
 .btn-addpl:hover { color: var(--text); }
+.btn-addpl.is-in-playlist { color: var(--accent); }
+.btn-addpl.is-in-playlist:hover { color: var(--accent-2, var(--accent)); }
 
 /* --- player: loading feedback --- */
 .player.is-loading .player-cover { animation: melody-pulse 1.1s ease-in-out infinite; }

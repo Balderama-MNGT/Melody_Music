@@ -1,50 +1,32 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icons.jsx'
 import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
 import { useToast } from '../context/ToastContext.jsx'
-import { createPlaylist, fetchPlaylists } from '../lib/db.js'
+import { usePlaylists } from '../context/PlaylistsContext.jsx'
 import { formatDate, plural } from '../lib/format.js'
 
 /** Playlists - pages/playlists.php: list your playlists and create a new one. */
 export default function Playlists() {
   const toast = useToast()
-  const [state, setState] = useState('loading') // loading | ready | error
+  const { playlists, loading, create, refresh } = usePlaylists()
   const [error, setError] = useState('')
-  const [playlists, setPlaylists] = useState([])
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const load = useCallback(() => {
-    setState('loading')
-    setError('')
-    fetchPlaylists()
-      .then((rows) => {
-        setPlaylists(rows)
-        setState('ready')
-      })
-      .catch((err) => {
-        setError(err?.message || 'Your playlists could not be loaded. Please try again.')
-        setState('error')
-      })
-  }, [])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  async function create(e) {
+  async function createList(e) {
     e.preventDefault()
     const value = name.trim()
     if (!value || busy) return
     setBusy(true)
+    setError('')
     try {
-      await createPlaylist(value)
+      await create(value)
       setName('')
       toast(`Created “${value}”.`)
-      load()
     } catch (err) {
-      toast(err?.message || 'Could not create the playlist.', true)
+      setError(err?.message || 'Could not create the playlist.')
+      refresh()
     } finally {
       setBusy(false)
     }
@@ -56,7 +38,7 @@ export default function Playlists() {
         <Icon name="list-music" size={24} /> <span>Your Playlists</span>
       </h1>
 
-      <form className="inline-form" onSubmit={create}>
+      <form className="inline-form" onSubmit={createList}>
         <label className="visually-hidden" htmlFor="newPlaylist">
           New playlist name
         </label>
@@ -75,10 +57,10 @@ export default function Playlists() {
         </button>
       </form>
 
-      {state === 'loading' && <LoadingState label="Loading your playlists…" />}
-      {state === 'error' && <ErrorState message={error} onRetry={load} />}
+      {loading && <LoadingState label="Loading your playlists…" />}
+      {!loading && error && <ErrorState message={error} onRetry={refresh} />}
 
-      {state === 'ready' &&
+      {!loading && !error &&
         (playlists.length === 0 ? (
           <EmptyState
             icon={<Icon name="list-music" size={22} />}

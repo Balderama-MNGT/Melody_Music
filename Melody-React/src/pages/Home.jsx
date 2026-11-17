@@ -8,11 +8,11 @@ import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePlayer } from '../context/PlayerContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
+import { usePlaylists } from '../context/PlaylistsContext.jsx'
 import {
   distinctByTrack,
   fetchFavoriteTracks,
   fetchHistory,
-  fetchPlaylists,
   fetchPlaylistTracks,
   fetchStats,
 } from '../lib/db.js'
@@ -27,12 +27,12 @@ import { playSection } from '../lib/sections.js'
 export default function Home() {
   const { session, profile } = useAuth()
   const { playQueue, current, playing, loading, toggle } = usePlayer()
+  const { playlists: sharedPlaylists } = usePlaylists()
   const toast = useToast()
 
   const [state, setState] = useState('loading') // loading | ready | error
   const [error, setError] = useState('')
   const [stats, setStats] = useState({ favs: 0, lists: 0, plays: 0 })
-  const [playlists, setPlaylists] = useState([])
   const [favorites, setFavorites] = useState([])
   const [recent, setRecent] = useState([])
   const [top, setTop] = useState([])
@@ -40,11 +40,10 @@ export default function Home() {
   const load = useCallback(() => {
     setState('loading')
     setError('')
-    Promise.all([fetchStats(), fetchPlaylists(), fetchFavoriteTracks(), fetchHistory()])
-      .then(([st, pls, favs, hist]) => {
+    Promise.all([fetchStats(), fetchFavoriteTracks(), fetchHistory()])
+      .then(([st, favs, hist]) => {
         const distinct = distinctByTrack(hist)
         setStats(st)
-        setPlaylists(pls.slice(0, 12))
         setFavorites(favs.slice(0, 8))
         setRecent(distinct.slice(0, 8))
         setTop(
@@ -127,7 +126,7 @@ export default function Home() {
       cover: '',
       play: recent.length ? () => playQueue(recent, 0) : null,
     },
-    ...playlists.slice(0, 4).map((pl) => ({
+    ...sharedPlaylists.slice(0, 4).map((pl) => ({
       href: `/app/playlists/${pl.id}`,
       title: pl.name,
       kind: 'playlist',
@@ -297,13 +296,13 @@ export default function Home() {
             <div>
               <h2 className="section-title">
                 <Icon name="list-music" size={18} /> <span>Your Playlists</span>
-                {playlists.length > 0 && (
+                {sharedPlaylists.length > 0 && (
                   <Link className="section-more" to="/app/playlists">
                     See all
                   </Link>
                 )}
               </h2>
-              {playlists.length === 0 ? (
+              {sharedPlaylists.length === 0 ? (
                 <EmptyState
                   icon={<Icon name="list-music" size={22} />}
                   title="No playlists yet"
@@ -320,7 +319,7 @@ export default function Home() {
                 </EmptyState>
               ) : (
                 <div className="card-grid">
-                  {playlists.map((pl) => (
+                  {sharedPlaylists.map((pl) => (
                     <Link className="list-card" to={`/app/playlists/${pl.id}`} key={pl.id}>
                       {pl.cover ? (
                         <img className="list-card-thumb" src={pl.cover} alt="" referrerPolicy="no-referrer" />

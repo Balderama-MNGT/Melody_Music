@@ -6,13 +6,8 @@ import ConfirmDialog from '../components/ConfirmDialog.jsx'
 import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
 import { usePlayer } from '../context/PlayerContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
-import {
-  deletePlaylist,
-  fetchPlaylist,
-  fetchPlaylistTracks,
-  removeTrackFromPlaylist,
-  renamePlaylist,
-} from '../lib/db.js'
+import { fetchPlaylist, fetchPlaylistTracks } from '../lib/db.js'
+import { usePlaylists } from '../context/PlaylistsContext.jsx'
 import { providerSuffix } from '../lib/api.js'
 import { plural } from '../lib/format.js'
 
@@ -27,6 +22,11 @@ export default function PlaylistDetail() {
   const navigate = useNavigate()
   const toast = useToast()
   const { playQueue } = usePlayer()
+  const {
+    rename: renameList,
+    remove: removeList,
+    removeTrack: removeTrackFromList,
+  } = usePlaylists()
 
   const [state, setState] = useState('loading') // loading | ready | error | missing
   const [error, setError] = useState('')
@@ -72,7 +72,7 @@ export default function PlaylistDetail() {
     if (!value || busy || !playlist) return
     setBusy(true)
     try {
-      await renamePlaylist(playlist.id, value)
+      await renameList(playlist.id, value)
       setPlaylist({ ...playlist, name: value })
       toast('Playlist renamed.')
     } catch (err) {
@@ -85,7 +85,7 @@ export default function PlaylistDetail() {
 
   async function remove(track) {
     try {
-      await removeTrackFromPlaylist(playlist.id, track.external_id)
+      await removeTrackFromList(playlist.id, track.external_id)
       setTracks((rows) => rows.filter((r) => r.external_id !== track.external_id))
       toast(`Removed “${track.title}”.`)
     } catch (err) {
@@ -96,7 +96,7 @@ export default function PlaylistDetail() {
   async function removeConfirmed() {
     setConfirmDelete(false)
     try {
-      await deletePlaylist(playlist.id)
+      await removeList(playlist.id)
       toast('Playlist deleted.')
       navigate('/app/playlists')
     } catch (err) {

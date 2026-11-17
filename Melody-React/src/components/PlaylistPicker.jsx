@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from './Icons.jsx'
-import { useToast } from '../context/ToastContext.jsx'
-import { fetchPlaylistOptions, addTrackToPlaylist, createPlaylist } from '../lib/db.js'
+import { usePlaylists } from '../context/PlaylistsContext.jsx'
 
 /** Only one picker may be open at a time (the old player.js behaved the same). */
 let closeCurrentlyOpen = null
@@ -12,8 +11,7 @@ let closeCurrentlyOpen = null
  * Offers the user's playlists plus "create one on the fly", then closes.
  */
 export default function PlaylistPicker({ track, onClose }) {
-  const toast = useToast()
-  const [playlists, setPlaylists] = useState(null) // null = loading
+  const { playlists, loading, addTrack, createAndAdd } = usePlaylists()
   const [status, setStatus] = useState('')
   const [error, setError] = useState(false)
   const boxRef = useRef(null)
@@ -21,19 +19,7 @@ export default function PlaylistPicker({ track, onClose }) {
   useEffect(() => {
     if (closeCurrentlyOpen) closeCurrentlyOpen()
     closeCurrentlyOpen = onClose
-
-    let alive = true
-    fetchPlaylistOptions()
-      .then((rows) => alive && setPlaylists(rows))
-      .catch((err) => {
-        if (!alive) return
-        setPlaylists([])
-        setError(true)
-        setStatus(err?.message || 'Could not load your playlists.')
-      })
-
     return () => {
-      alive = false
       if (closeCurrentlyOpen === onClose) closeCurrentlyOpen = null
     }
   }, [onClose])
@@ -62,30 +48,14 @@ export default function PlaylistPicker({ track, onClose }) {
     setError(false)
     if (button) button.disabled = true
     try {
-      let targetId = playlistId
-      let targetName = name
-      if (!playlistId) {
-        const created = await createPlaylist(name)
-        targetId = created.id
-        targetName = created.name
-        setPlaylists((rows) => [...(rows || []), { id: targetId, name: targetName, trackIds: [] }])
-      }
-      const res = await addTrackToPlaylist(targetId, track)
+      /* The create form passes playlistId = 0; an existing row always has an id. */
+      const res = playlistId ? await addTrack(playlistId, track) : await createAndAdd(name, track)
       if (!res.added) {
         setError(true)
-        setStatus(`“${track.title}” is already in “${targetName}”.`)
+        setStatus(`“${track.title}” is already in this playlist.`)
         if (button) button.disabled = false
         return
       }
-      /* Reflect the new song immediately, before the dialog closes. */
-      setPlaylists((rows) =>
-        (rows || []).map((p) =>
-          p.id === targetId
-            ? { ...p, trackIds: [...new Set([...(p.trackIds || []), track.external_id])] }
-            : p
-        )
-      )
-      toast(`Added to “${targetName}”.`)
       onClose()
     } catch (err) {
       setError(true)
@@ -94,7 +64,7 @@ export default function PlaylistPicker({ track, onClose }) {
     }
   }
 
-  const empty = playlists && playlists.length === 0
+  const empty = !loading && playlists && playlists.length === 0
 
   return createPortal(
     <div
@@ -113,7 +83,7 @@ export default function PlaylistPicker({ track, onClose }) {
         <h2 id="plPickerTitle">Add to playlist</h2>
 
         <div className="pl-list">
-          {playlists === null && <p className="pl-empty">Loading your playlists…</p>}
+          {loading && <p className="pl-empty">Loading your playlists…</p>}
           {empty && <p className="pl-empty">You have no playlists yet - create one below.</p>}
           {(playlists || []).map((pl) => {
             const added = (pl.trackIds || []).includes(track.external_id)
@@ -176,6 +146,8 @@ export default function PlaylistPicker({ track, onClose }) {
 /** The "add to playlist" icon button used on cards, rows and the player bar. */
 export function AddToPlaylistButton({ track, className = 'btn btn-icon btn-addpl' }) {
   const [open, setOpen] = useState(false)
+  const { isInAnyPlaylist } = usePlaylists()
+  const added = Boolean(track?.external_id && isInAnyPlaylist(track.external_id))
 
   if (!track || !track.external_id) return null
 
@@ -183,12 +155,12 @@ export function AddToPlaylistButton({ track, className = 'btn btn-icon btn-addpl
     <>
       <button
         type="button"
-        className={className}
-        aria-label="Add to playlist"
-        title="Add to playlist"
+        className={`${className}${added ? ' is-in-playlist' : ''}`}
+        aria-label={added ? 'Added to a playlist - add to another' : 'Add to playlist'}
+        title={added ? 'Added to a playlist' : 'Add to playlist'}
         onClick={() => setOpen(true)}
       >
-        <Icon name="list-plus" size={18} />
+        <Icon name={added ? 'check' : 'list-plus'} size={18} />
       </button>
       {open && <PlaylistPicker track={track} onClose={() => setOpen(false)} />}
     </>
