@@ -16,21 +16,30 @@ const origins = String(process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean)
+const allowedOrigins = origins.length
+  ? origins
+  : ['http://localhost:5173', 'https://melody-music-ten.vercel.app']
+const originReferer = (origin) => String(origin || '').replace(/\/+$/, '') + '/'
 
 export const config = {
   youtubeKey: String(process.env.YOUTUBE_API_KEY || '').trim(),
-  /* Only needed while the existing key still uses an HTTP-referrer restriction
-     (a server fetch normally has none). Remove once the key is restricted to
-     this server's IP instead - see .env.example. */
-  youtubeReferer: String(process.env.YOUTUBE_REFERER || '').trim(),
+  /* A key with an HTTP-referrer restriction rejects server-side fetches that
+     carry no Referer (HTTP 403 "forbidden"). YOUTUBE_REFERER can override this;
+     otherwise use the production origin from ALLOWED_ORIGINS so Vercel works
+     without an extra variable. Remove the restriction on the key itself for a
+     cleaner long-term setup - see .env.example. */
+  youtubeReferer:
+    String(process.env.YOUTUBE_REFERER || '').trim() ||
+    originReferer(
+      allowedOrigins.find((o) => /^https:/i.test(o) && !/localhost|127\.0\.0\.1/.test(o)) ||
+        allowedOrigins[0]
+    ),
   supabaseUrl: String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim(),
   supabaseAnonKey: String(
     process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || ''
   ).trim(),
 
-  allowedOrigins: origins.length
-    ? origins
-    : ['http://localhost:5173', 'https://melody-music-ten.vercel.app'],
+  allowedOrigins,
 
   limits: {
     windowMs: num('RATE_LIMIT_WINDOW_MS', 60_000, 1_000, 3_600_000),

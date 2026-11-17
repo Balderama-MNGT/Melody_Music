@@ -237,7 +237,11 @@ async function runAction(action, params) {
         let data = await chart(action === 'trending' ? '' : (await cacheGet('chart:token')) || '')
         if (action === 'discover' && !data.items.length) data = await chart('')
         const normalized = normalizeVideos(data.items)
-        await cacheSet(key, normalized, config.cache.chartTtl)
+        await cacheSet(
+          key,
+          normalized,
+          normalized.length ? config.cache.chartTtl : config.cache.emptySearchTtl
+        )
         if (data.nextPageToken) await cacheSet('chart:token', data.nextPageToken, config.cache.chartTtl)
         return normalized
       })

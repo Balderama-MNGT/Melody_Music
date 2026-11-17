@@ -145,6 +145,8 @@ function messageFor(code, status) {
       return "YouTube's API quota is used up for now. Please try again a little later."
     case 'not_configured':
       return 'Music search is not configured on the server yet.'
+    case 'key_restricted':
+      return 'YouTube rejected the server API key restrictions. The deployment owner needs to fix the key’s HTTP-referrer setting.'
     case 'timeout':
       return 'YouTube took too long to respond. Please try again.'
     case 'invalid':
@@ -369,7 +371,7 @@ async function chartPage(page) {
     const data = await backendGet(action, { limit: 50 })
     const tracks = Array.isArray(data.tracks) ? data.tracks : []
     rememberChannels(tracks)
-    cacheSet(key, tracks, TTL.chart)
+    cacheSet(key, tracks, tracks.length ? TTL.chart : TTL.weak)
     return tracks
   })
 }
@@ -388,7 +390,7 @@ async function searchTracks(query, limit) {
     const data = await backendGet('search', { q: text, limit: 20 })
     const tracks = Array.isArray(data.tracks) ? data.tracks : []
     rememberChannels(tracks)
-    cacheSet(key, tracks, TTL.search)
+    cacheSet(key, tracks, tracks.length ? TTL.search : TTL.weak)
     return tracks.slice(0, limit)
   })
 }
@@ -407,7 +409,7 @@ async function artistTracks(channelId, limit) {
     if (again) return again.slice(0, limit)
     const data = await backendGet('artist_tracks', { id, limit: 30 })
     const tracks = Array.isArray(data.tracks) ? data.tracks : []
-    cacheSet(key, tracks, TTL.artist)
+    cacheSet(key, tracks, tracks.length ? TTL.artist : TTL.weak)
     return tracks.slice(0, limit)
   })
 }
@@ -467,20 +469,38 @@ export async function youtubeRequest(params = {}) {
   }
 
   if (action === 'trending') {
-    const tracks = (await chartPage(0).catch(() => [])).slice(0, limit)
-    if (!tracks.length) throw new YoutubeError('YouTube did not return any tracks.', 502)
+    /* Propagate the backend's real error (quota, key restriction, network)
+       instead of turning every failure into "did not return any tracks". */
+    const tracks = (await chartPage(0)).slice(0, limit)
+    if (!tracks.length) {
+      throw new YoutubeError('YouTube returned an empty chart right now. Please try again shortly.', 502)
+    }
     return { ok: true, count: tracks.length, tracks }
   }
 
   if (action === 'discover') {
-    let tracks = await chartPage(1).catch(() => [])
+    let tracks = []
+    let primaryError = null
+    try {
+      tracks = await chartPage(1)
+    } catch (err) {
+      primaryError = err
+    }
     if (!tracks.length) {
-      // No second page (or it failed): differ from Trending the way the old
-      // discover row did - same pool, minus the top of the chart.
-      const top = await chartPage(0).catch(() => [])
+      /* No second page (or it failed): differ from Trending the way the old
+         discover row did - same pool, minus the top of the chart. */
+      let top = []
+      try {
+        top = await chartPage(0)
+      } catch (err) {
+        throw primaryError || err
+      }
       const head = new Set(top.slice(0, limit).map((t) => t.external_id))
       tracks = top.filter((t) => !head.has(t.external_id))
       if (!tracks.length) tracks = top
+    }
+    if (!tracks.length) {
+      throw new YoutubeError('YouTube returned an empty chart right now. Please try again shortly.', 502)
     }
     return { ok: true, count: Math.min(tracks.length, limit), tracks: tracks.slice(0, limit) }
   }

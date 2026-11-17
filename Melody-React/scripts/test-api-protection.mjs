@@ -21,6 +21,25 @@ process.env.CACHE_MAX_ENTRIES = '50'
 const { rateCheck, cacheGet, cacheSet, dedupe, metricsSnapshot } = await import(
   new URL('../api/_lib/store.js', import.meta.url)
 )
+const { config } = await import(new URL('../api/_lib/config.js', import.meta.url))
+const { classify } = await import(new URL('../api/_lib/youtube.js', import.meta.url))
+
+check(
+  'server key is read from process.env.YOUTUBE_API_KEY (no VITE_ key)',
+  !('VITE_YOUTUBE_API_KEY' in process.env) || config.youtubeKey !== process.env.VITE_YOUTUBE_API_KEY,
+  `configured=${Boolean(config.youtubeKey)}`
+)
+check(
+  'a referrer fallback is configured for deployed server-side calls',
+  /^https:\/\//.test(config.youtubeReferer),
+  config.youtubeReferer
+)
+const denied = classify({ status: 403 }, 'forbidden', 'Permission denied on the service.')
+check(
+  'HTTP 403 forbidden is reported as a key restriction, not a generic empty result',
+  denied.code === 'key_restricted' && /restriction/i.test(denied.message),
+  `${denied.code}: ${denied.message}`
+)
 
 const a = await rateCheck('test-ip', 2, 1000)
 const b = await rateCheck('test-ip', 2, 1000)

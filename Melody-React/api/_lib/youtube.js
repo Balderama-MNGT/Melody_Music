@@ -20,8 +20,10 @@ export class ApiError extends Error {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const jitter = () => Math.floor(Math.random() * 200)
 
-function classify(res, reason) {
-  if (res.status === 403 && /quota|dailyLimit|rateLimit/i.test(reason)) {
+export function classify(res, reason, detail = '') {
+  const why = String(reason || '')
+  const text = String(detail || '')
+  if (res.status === 403 && /quota|dailyLimit|rateLimit/i.test(why)) {
     return new ApiError("YouTube's API quota is exhausted. Please try again later.", 503, 'quota')
   }
   if (res.status === 429) {
@@ -30,7 +32,23 @@ function classify(res, reason) {
   if (res.status === 400) {
     return new ApiError('YouTube rejected that request. Please try different words.', 400, 'invalid')
   }
-  return new ApiError('YouTube is temporarily unavailable. Please try again.', 502, 'upstream')
+  /* The observed Vercel failure: HTTP 403 reason "forbidden", message
+     "Permission denied on the service", caused by an HTTP-referrer restricted
+     key receiving a server-side request with no Referer. Never include the key. */
+  if (
+    res.status === 403 &&
+    (/apikey|keyinvalid|accessnotconfigured|forbidden|referer|iprefererblocked|browserkey|credential/i.test(why) ||
+      /permission denied on the service/i.test(text))
+  ) {
+    return new ApiError(
+      'YouTube rejected the server API key restrictions (HTTP 403 forbidden). ' +
+        'Set YOUTUBE_REFERER to the deployed origin or remove the key’s HTTP-referrer restriction.',
+      502,
+      'key_restricted'
+    )
+  }
+  const suffix = why ? ` (${why})` : ''
+  return new ApiError(`YouTube returned HTTP ${res.status}${suffix}. Please try again.`, 502, 'upstream')
 }
 
 /** One fetch with a hard timeout. */
@@ -83,10 +101,12 @@ export async function ytGet(endpoint, params, cost = 1) {
           (json && json.error && json.error.errors && json.error.errors[0] && json.error.errors[0].reason) ||
           (json && json.error && json.error.status) ||
           ''
-        const error = classify(res, reason)
+        const detail =
+          json && json.error && typeof json.error.message === 'string' ? json.error.message : ''
+        const error = classify(res, reason, detail)
         if (error.code === 'quota') metrics.quotaErrors++
         metrics.ytErrors++
-        if (error.code === 'quota' || error.code === 'invalid') throw error
+        if (error.code === 'quota' || error.code === 'invalid' || error.code === 'key_restricted') throw error
         lastError = error
       } else {
         if (!json || typeof json !== 'object') {
@@ -96,7 +116,10 @@ export async function ytGet(endpoint, params, cost = 1) {
         return json
       }
     } catch (err) {
-      if (err instanceof ApiError && (err.code === 'quota' || err.code === 'invalid' || err.code === 'timeout')) {
+      if (
+        err instanceof ApiError &&
+        (err.code === 'quota' || err.code === 'invalid' || err.code === 'key_restricted' || err.code === 'timeout')
+      ) {
         if (err.code !== 'timeout') throw err
         lastError = err
       } else {
