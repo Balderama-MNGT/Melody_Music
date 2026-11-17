@@ -93,15 +93,20 @@ export async function fetchPlaylists() {
   })
 }
 
-/** Lightweight list for the "add to playlist" picker (id + name only). */
+/** Playlists for the "add to playlist" picker, including the video IDs they
+    already contain so the UI can show an "Added" indicator and skip duplicates. */
 export async function fetchPlaylistOptions() {
   const db = requireSupabase()
   const { data, error } = await db
     .from('playlists')
-    .select('id, name')
+    .select('id, name, playlist_tracks(external_id)')
     .order('name', { ascending: true })
   if (error) throw fail(errorMessage({ error }))
-  return data || []
+  return (data || []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    trackIds: (p.playlist_tracks || []).map((t) => t.external_id),
+  }))
 }
 
 /** One playlist, but only when it belongs to the signed-in user (RLS). */

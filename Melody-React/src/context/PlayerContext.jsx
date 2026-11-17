@@ -144,6 +144,11 @@ export function PlayerProvider({ children }) {
   const repeatRef = useRef(repeat)
   const shuffleRef = useRef(shuffle)
   const playbackModeRef = useRef(playbackMode)
+  /* A stable shuffled order over the CURRENT queue: one pass plays every song
+     before any of them repeats. Rebuilt only when the queue or seed changes. */
+  const shuffleOrderRef = useRef([])
+  const shuffleCursorRef = useRef(-1)
+  const shuffleQueueRef = useRef(null)
   /* One guard per track completion: YouTube can emit ENDED more than once (or
      a stale event can arrive after a track change). The key is the playback
      session + video id, so one completion can advance at most once. */
@@ -318,11 +323,57 @@ export function PlayerProvider({ children }) {
     }, MIN_PLAY_MS)
   }, [])
 
+  /** A full shuffled permutation of the queue, with the current song first.
+      cursor 0 means "currently playing order[0]". */
+  const rebuildShuffleOrder = useCallback((q, currentIndex) => {
+    const order = q.map((_, i) => i)
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      const tmp = order[i]
+      order[i] = order[j]
+      order[j] = tmp
+    }
+    const at = order.indexOf(currentIndex)
+    if (at > 0) {
+      order.splice(at, 1)
+      order.unshift(currentIndex)
+    }
+    shuffleOrderRef.current = order
+    shuffleCursorRef.current = 0
+    shuffleQueueRef.current = q
+  }, [])
+
+  /** Step through the SAME shuffled order; reshuffle only after a full pass. */
+  const shuffledStep = useCallback(
+    (q, currentIndex, direction) => {
+      const order = shuffleOrderRef.current
+      const valid =
+        shuffleQueueRef.current === q &&
+        order.length === q.length &&
+        order[shuffleCursorRef.current] === currentIndex
+      if (!valid) rebuildShuffleOrder(q, currentIndex)
+      let cursor = shuffleCursorRef.current + direction
+      if (cursor >= shuffleOrderRef.current.length) {
+        rebuildShuffleOrder(q, currentIndex)
+        cursor = Math.min(1, shuffleOrderRef.current.length - 1)
+      } else if (cursor < 0) {
+        rebuildShuffleOrder(q, currentIndex)
+        cursor = shuffleOrderRef.current.length - 1
+      }
+      shuffleCursorRef.current = cursor
+      return shuffleOrderRef.current[cursor]
+    },
+    [rebuildShuffleOrder]
+  )
+
   const load = useCallback(
-    (i, autoplay) => {
+    (i, autoplay, options = {}) => {
       const q = queueRef.current
       if (i < 0 || i >= q.length) return
       const song = q[i]
+      /* Direct selections re-anchor shuffle; transport steps pass
+         preserveShuffle so the same shuffled order survives Next/Previous. */
+      if (!options.preserveShuffle) rebuildShuffleOrder(q, i)
 
       errorHandledRef.current = false
       indexRef.current = i
@@ -379,7 +430,7 @@ export function PlayerProvider({ children }) {
       startVideo(song.external_id, autoplay)
       if (autoplay) schedulePlayRecord(song, sessionIdRef.current)
     },
-    [startVideo, markSeen, schedulePlayRecord]
+    [startVideo, markSeen, schedulePlayRecord, rebuildShuffleOrder]
   )
 
   const loadRef = useRef(load)
@@ -486,17 +537,16 @@ export function PlayerProvider({ children }) {
        recommendations, no history filtering and no search - the saved order
        is authoritative (shuffle randomises that same queue). */
     if (playbackModeRef.current === 'playlist') {
-      const others = q.map((t, i) => ({ t, i })).filter(({ i }) => i !== idx)
       let at = -1
-      if (shuffleRef.current && others.length) {
-        at = others[Math.floor(Math.random() * others.length)].i
+      if (shuffleRef.current) {
+        at = shuffledStep(q, idx, 1) // every song once, then a new shuffled pass
       } else if (idx + 1 < q.length) {
         at = idx + 1
-      } else if (repeatRef.current === 'all' && q.length > 1) {
-        at = 0
+      } else if (q.length > 1) {
+        at = 0 // a playlist loops to its first song when the last one ends
       }
-      if (at >= 0) load(at, true)
-      else stop() // end of playlist: stay on the last song, playback stops
+      if (at >= 0) load(at, true, { preserveShuffle: true })
+      else stop()
       return
     }
 
@@ -557,7 +607,7 @@ export function PlayerProvider({ children }) {
       }
       stop()
     })
-  }, [load, refillRecommendations])
+  }, [load, refillRecommendations, shuffledStep])
 
   const prev = useCallback(() => {
     const q = queueRef.current
@@ -565,7 +615,10 @@ export function PlayerProvider({ children }) {
     /* Playlist mode always moves to the previous saved song (or wraps), never
        to a recommendation from another playlist. */
     if (playbackModeRef.current === 'playlist') {
-      load(indexRef.current > 0 ? indexRef.current - 1 : q.length - 1, true)
+      const at = shuffleRef.current
+        ? shuffledStep(q, indexRef.current, -1)
+        : (indexRef.current > 0 ? indexRef.current - 1 : q.length - 1)
+      load(at, true, { preserveShuffle: true })
       return
     }
     const yt = ytRef.current
@@ -576,7 +629,7 @@ export function PlayerProvider({ children }) {
       return
     }
     load(indexRef.current > 0 ? indexRef.current - 1 : q.length - 1, true)
-  }, [load])
+  }, [load, shuffledStep])
 
   const toggle = useCallback(() => {
     const q = queueRef.current
@@ -652,12 +705,18 @@ export function PlayerProvider({ children }) {
     const on = !shuffleRef.current
     shuffleRef.current = on
     setShuffle(on)
+    if (on) rebuildShuffleOrder(queueRef.current, indexRef.current)
+    else {
+      shuffleOrderRef.current = []
+      shuffleCursorRef.current = -1
+      shuffleQueueRef.current = null
+    }
     try {
       localStorage.setItem(SHUFFLE_KEY, on ? 'on' : 'off')
     } catch {
       /* private mode etc. */
     }
-  }, [])
+  }, [rebuildShuffleOrder])
 
   /* ------------------------- YouTube player events ------------------------ */
 

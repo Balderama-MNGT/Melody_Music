@@ -52,6 +52,12 @@ export default function PlaylistPicker({ track, onClose }) {
   }, [onClose])
 
   async function addTo(playlistId, name, button) {
+    const existing = (playlists || []).find((p) => p.id === playlistId)
+    if (existing && (existing.trackIds || []).includes(track.external_id)) {
+      setError(true)
+      setStatus(`“${track.title}” is already in “${existing.name}”.`)
+      return
+    }
     setStatus(name ? 'Creating playlist…' : 'Adding…')
     setError(false)
     if (button) button.disabled = true
@@ -62,9 +68,24 @@ export default function PlaylistPicker({ track, onClose }) {
         const created = await createPlaylist(name)
         targetId = created.id
         targetName = created.name
+        setPlaylists((rows) => [...(rows || []), { id: targetId, name: targetName, trackIds: [] }])
       }
       const res = await addTrackToPlaylist(targetId, track)
-      toast(res.added ? `Added to “${targetName}”.` : `Already in “${targetName}”.`)
+      if (!res.added) {
+        setError(true)
+        setStatus(`“${track.title}” is already in “${targetName}”.`)
+        if (button) button.disabled = false
+        return
+      }
+      /* Reflect the new song immediately, before the dialog closes. */
+      setPlaylists((rows) =>
+        (rows || []).map((p) =>
+          p.id === targetId
+            ? { ...p, trackIds: [...new Set([...(p.trackIds || []), track.external_id])] }
+            : p
+        )
+      )
+      toast(`Added to “${targetName}”.`)
       onClose()
     } catch (err) {
       setError(true)
@@ -94,16 +115,24 @@ export default function PlaylistPicker({ track, onClose }) {
         <div className="pl-list">
           {playlists === null && <p className="pl-empty">Loading your playlists…</p>}
           {empty && <p className="pl-empty">You have no playlists yet - create one below.</p>}
-          {(playlists || []).map((pl) => (
-            <button
-              key={pl.id}
-              type="button"
-              className="pl-item"
-              onClick={(e) => addTo(pl.id, pl.name, e.currentTarget)}
-            >
-              {pl.name}
-            </button>
-          ))}
+          {(playlists || []).map((pl) => {
+            const added = (pl.trackIds || []).includes(track.external_id)
+            return (
+              <button
+                key={pl.id}
+                type="button"
+                className={`pl-item${added ? ' is-added' : ''}`}
+                onClick={(e) => addTo(pl.id, pl.name, e.currentTarget)}
+              >
+                <span className="pl-item-name">{pl.name}</span>
+                {added && (
+                  <span className="pl-added">
+                    <Icon name="check" size={14} /> Added
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
 
         <form

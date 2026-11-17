@@ -165,6 +165,7 @@ const PATHS = {
       <polyline points="16 7 22 7 22 13" />
     </>
   ),
+  check: <polyline points="20 6 9 17 4 12" />,
   'list-plus': (
     <>
       <path d="M11 12H3" />
