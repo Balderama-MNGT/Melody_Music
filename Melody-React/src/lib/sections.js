@@ -1,10 +1,10 @@
 /**
- * "Play all" support for the Audius rows (the old data-play-all buttons).
+ * "Play all" support for the home rows (the old data-play-all buttons).
  *
- * Every <AudiusSection> publishes its state here while it is mounted, so the
+ * Every <MusicSection> publishes its state here while it is mounted, so the
  * hero button and each section's "Play all" can start the very same queue.
  * Pressing play while a row is still loading remembers the request and starts
- * as soon as the tracks arrive - exactly like pendingPlay in assets/js/audius.js.
+ * as soon as the tracks arrive - exactly like the old pendingPlay helper.
  */
 const sections = new Map() // mode -> { state, tracks, play }
 let pending = null // mode whose "play all" was pressed too early

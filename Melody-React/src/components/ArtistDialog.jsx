@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from './Icons.jsx'
-import { audiusRequest } from '../lib/api.js'
+import { youtubeRequest, providerSuffix } from '../lib/api.js'
 import { fmtCount } from '../lib/format.js'
 import TrackRow from './TrackRow.jsx'
 import { EmptyState, ErrorState, LoadingState } from './States.jsx'
@@ -29,8 +29,8 @@ export function Avatar({ url, className }) {
 }
 
 /**
- * Artist panel - openArtist() from assets/js/audius.js.
- * Loads one artist's real Audius catalog and plays it through the bottom player.
+ * Artist panel - openArtist() from the old assets/js/audius.js.
+ * Loads one artist's YouTube catalog and plays it through the bottom player.
  */
 export default function ArtistDialog({ artist, onClose }) {
   const [state, setState] = useState('loading') // loading | ready | error | empty
@@ -41,7 +41,7 @@ export default function ArtistDialog({ artist, onClose }) {
 
   const load = useCallback(() => {
     setState('loading')
-    audiusRequest({ action: 'artist_tracks', id: artist.id, limit: 30 })
+    youtubeRequest({ action: 'artist_tracks', id: artist.id, limit: 30 })
       .then((res) => {
         const list = (res.tracks || []).filter((t) => t.streamable)
         if (!list.length) {
@@ -114,13 +114,13 @@ export default function ArtistDialog({ artist, onClose }) {
           {state === 'empty' && (
             <EmptyState
               title="No tracks available"
-              text="This artist has no streamable tracks on Audius right now."
+              text="This artist has no embeddable tracks on YouTube right now."
             />
           )}
           {state === 'ready' && (
             <ul className="track-list">
               {tracks.map((t, i) => (
-                <TrackRow key={t.external_id} track={t} queue={tracks} index={i} suffix=" • Audius" />
+                <TrackRow key={t.external_id} track={t} queue={tracks} index={i} suffix={providerSuffix(t.external_id)} />
               ))}
             </ul>
           )}

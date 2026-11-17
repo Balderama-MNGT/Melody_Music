@@ -146,10 +146,16 @@ create index if not exists playlists_user_id_idx
 -- Track metadata (title/artist/cover/duration) is snapshotted here, so a
 -- playlist keeps working even if the catalog changes. There is deliberately
 -- no shared "songs" table: nothing else has to exist for these rows to show.
+--
+-- external_id is the provider's own id: an Audius track id (rows saved before
+-- the YouTube migration) or a YouTube video id - 11 characters that may
+-- contain "-" and "_". The check below therefore accepts both spellings, so
+-- nothing a user saved earlier ever becomes invalid. Same rule on `favorites`
+-- and `listening_history`.
 -- ----------------------------------------------------------------------------
 create table if not exists public.playlist_tracks (
     playlist_id uuid not null references public.playlists (id) on delete cascade,
-    external_id text not null check (external_id ~ '^[A-Za-z0-9]{1,32}$'),
+    external_id text not null check (external_id ~ '^[A-Za-z0-9_-]{1,64}$'),
     title       text not null,
     artist      text not null default 'Unknown artist',
     cover       text,
@@ -166,7 +172,7 @@ create index if not exists playlist_tracks_playlist_id_idx
 -- ----------------------------------------------------------------------------
 create table if not exists public.favorites (
     user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
-    external_id text not null check (external_id ~ '^[A-Za-z0-9]{1,32}$'),
+    external_id text not null check (external_id ~ '^[A-Za-z0-9_-]{1,64}$'),
     title       text not null,
     artist      text not null default 'Unknown artist',
     cover       text,
@@ -184,7 +190,7 @@ create index if not exists favorites_user_id_idx
 create table if not exists public.listening_history (
     id          uuid primary key default gen_random_uuid(),
     user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
-    external_id text not null check (external_id ~ '^[A-Za-z0-9]{1,32}$'),
+    external_id text not null check (external_id ~ '^[A-Za-z0-9_-]{1,64}$'),
     title       text not null,
     artist      text not null default 'Unknown artist',
     cover       text,
@@ -326,7 +332,8 @@ grant select (id, username, role, created_at) on public.profiles to anon, authen
 --       SELECT user_id, song_id, played_at         FROM listening_history;
 --       SELECT id, user_id, name, created_at       FROM playlists;
 --       SELECT playlist_id, song_id, ...           FROM playlist_tracks;
---     Every `song_id` maps to `external_id` (the Audius track id) and the
+--     Every `song_id` maps to `external_id` (the provider's track id - an
+--     Audius id, or a YouTube video id after the migration) and the
 --     title/artist/cover/duration are copied onto the row itself, so the old
 --     `songs` table does NOT need to exist in Supabase.
 --
@@ -348,4 +355,43 @@ grant select (id, username, role, created_at) on public.profiles to anon, authen
 --
 --  4. Never put the service_role key in Vercel's public env vars or in this
 --     repository - it bypasses every policy above.
+-- ============================================================================
+
+-- ============================================================================
+--  Migration: Audius -> YouTube (run ONCE on a database created before it)
+-- ============================================================================
+--  `external_id` now holds YouTube video ids, which contain "-" and "_"
+--  (for example dQw4w9WgXcQ), while the original check only allowed letters
+--  and digits. Widening it changes no rows: every old Audius id still passes,
+--  nothing is deleted, playlists / favorites / history stay exactly as they
+--  were. Run this in the Supabase SQL editor (Dashboard -> SQL -> New query):
+--
+--    alter table public.playlist_tracks
+--      drop constraint if exists playlist_tracks_external_id_check;
+--    alter table public.playlist_tracks
+--      add constraint playlist_tracks_external_id_check
+--      check (external_id ~ '^[A-Za-z0-9_-]{1,64}$');
+--
+--    alter table public.favorites
+--      drop constraint if exists favorites_external_id_check;
+--    alter table public.favorites
+--      add constraint favorites_external_id_check
+--      check (external_id ~ '^[A-Za-z0-9_-]{1,64}$');
+--
+--    alter table public.listening_history
+--      drop constraint if exists listening_history_external_id_check;
+--    alter table public.listening_history
+--      add constraint listening_history_external_id_check
+--      check (external_id ~ '^[A-Za-z0-9_-]{1,64}$');
+--
+--  If a constraint was ever renamed, look the real names up first:
+--
+--    select conrelid::regclass as tbl, conname, pg_get_constraintdef(oid)
+--      from pg_constraint
+--     where contype = 'c'
+--       and pg_get_constraintdef(oid) like '%external_id%';
+--
+--  Old rows keep their Audius ids on purpose: their metadata is snapshotted on
+--  the row, so they still list and play-fail gracefully (the player skips them
+--  with a clear message) until the user replaces them with YouTube results.
 -- ============================================================================

@@ -6,6 +6,7 @@
  * favourites and listening history - even if a query forgot its own filter.
  */
 import { requireSupabase } from './supabase.js'
+import { getAuthHeaders } from './api.js'
 
 const HISTORY_SCAN_LIMIT = 500
 
@@ -229,6 +230,38 @@ export async function recordPlay(track) {
     duration: Number(track.duration) || 0,
   })
   if (error) throw fail(errorMessage({ error }))
+}
+
+/**
+ * Record one play through the protected backend. The session id is generated
+ * per track selection; the backend + a UNIQUE database constraint make repeated
+ * calls (repeat-one, double PLAYING events, retries) harmless.
+ */
+export async function recordPlaySession(track, sessionId, listenedMs = 0) {
+  const headers = await getAuthHeaders()
+  const res = await fetch('/api/plays', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({
+      sessionId,
+      listenedMs,
+      track: {
+        external_id: track.external_id,
+        title: track.title,
+        artist: track.artist,
+        cover: track.cover || null,
+        duration: Number(track.duration) || 0,
+      },
+    }),
+  })
+  let json = null
+  try {
+    json = await res.json()
+  } catch {
+    /* handled below */
+  }
+  if (!res.ok) throw fail((json && json.error) || 'Could not record this play.')
+  return json || { ok: true }
 }
 
 /* -------------------------------- library ------------------------------ */

@@ -1,9 +1,9 @@
-/** Loading / error / empty views shared by the Audius sections and pages. */
+/** Loading / error / empty views shared by the music sections and pages. */
 
 /** Spinner + label (the non-row layout used on Search and dialogs). */
 export function LoadingState({ label = 'Loading…' }) {
   return (
-    <div className="audius-state" role="status">
+    <div className="music-state" role="status">
       <span className="spinner" aria-hidden="true" />
       <span>{label}</span>
     </div>
@@ -29,8 +29,8 @@ export function SkeletonRow({ artists = false, label = 'Loading…' }) {
 /** Alert with an optional "Try again" button and local-only technical detail. */
 export function ErrorState({ message, onRetry, debug = null }) {
   return (
-    <div className="alert alert-error audius-error" role="alert">
-      <div className="audius-error-row">
+    <div className="alert alert-error music-error" role="alert">
+      <div className="music-error-row">
         <span>{message}</span>
         {onRetry && (
           <button type="button" className="btn btn-outline" onClick={onRetry}>
@@ -39,7 +39,7 @@ export function ErrorState({ message, onRetry, debug = null }) {
         )}
       </div>
       {debug != null && (
-        <details className="audius-debug">
+        <details className="music-debug">
           <summary>Technical details (local debugging)</summary>
           <pre>{typeof debug === 'string' ? debug : JSON.stringify(debug, null, 2)}</pre>
         </details>

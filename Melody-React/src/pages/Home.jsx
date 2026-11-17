@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icons.jsx'
-import AudiusSection from '../components/AudiusSection.jsx'
+import MusicSection from '../components/MusicSection.jsx'
 import CoverArt from '../components/CoverArt.jsx'
 import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
@@ -16,11 +16,12 @@ import {
   fetchPlaylistTracks,
   fetchStats,
 } from '../lib/db.js'
+import { providerSuffix } from '../lib/api.js'
 import { greeting, plural } from '../lib/format.js'
 import { playSection } from '../lib/sections.js'
 
 /**
- * Home - pages/home.php: hero with your numbers, quick access, the Audius
+ * Home - pages/home.php: hero with your numbers, quick access, the YouTube
  * Trending / Discover / Artists rows, your playlists, favorites and top played.
  */
 export default function Home() {
@@ -64,6 +65,22 @@ export default function Home() {
     load()
   }, [load])
 
+  /* A confirmed play insert refreshes the counter from the database. */
+  useEffect(() => {
+    const refresh = () => {
+      Promise.all([fetchStats(), fetchHistory()])
+        .then(([st, hist]) => {
+          const distinct = distinctByTrack(hist)
+          setStats(st)
+          setRecent(distinct.slice(0, 8))
+          setTop(distinct.filter((t) => t.plays > 0).sort((a, b) => b.plays - a.plays).slice(0, 5))
+        })
+        .catch(() => {})
+    }
+    window.addEventListener('melody:plays-changed', refresh)
+    return () => window.removeEventListener('melody:plays-changed', refresh)
+  }, [])
+
   const name = profile?.username || session?.user?.user_metadata?.username || 'there'
 
   /* "Jump back in" mirrors the real player: whatever the shared <audio> element
@@ -87,7 +104,7 @@ export default function Home() {
         toast(`“${playlist.name}” has no tracks yet.`, true)
         return
       }
-      playQueue(tracks, 0)
+      playQueue(tracks, 0, { type: 'playlist', id: playlist.id, name: playlist.name })
     } catch (err) {
       toast(err?.message || 'Could not open that playlist.', true)
     }
@@ -243,36 +260,36 @@ export default function Home() {
             ))}
           </nav>
 
-          {/* Trending Music (Audius) */}
+          {/* Trending Music (YouTube) */}
           <h2 className="section-title">
             <Icon name="trending-up" size={18} /> <span>Trending Music</span>
             <button type="button" className="section-more section-btn" onClick={() => playSection('trending', toast)}>
               Play all
             </button>
           </h2>
-          <div className="audius-section">
-            <AudiusSection mode="trending" limit={10} layout="row" />
+          <div className="music-section">
+            <MusicSection mode="trending" limit={10} layout="row" />
           </div>
 
-          {/* Discover Music (Audius) */}
+          {/* Discover Music (YouTube) */}
           <h2 className="section-title">
             <Icon name="disc-3" size={18} /> <span>Discover Music</span>
-            <span className="section-sub">Fresh picks from across Audius</span>
+            <span className="section-sub">Fresh picks from across YouTube</span>
             <button type="button" className="section-more section-btn" onClick={() => playSection('discover', toast)}>
               Play all
             </button>
           </h2>
-          <div className="audius-section">
-            <AudiusSection mode="discover" limit={10} layout="row" />
+          <div className="music-section">
+            <MusicSection mode="discover" limit={10} layout="row" />
           </div>
 
-          {/* Artists (Audius) */}
+          {/* Artists (YouTube) */}
           <h2 className="section-title" id="home-artists">
             <Icon name="users" size={18} /> <span>Artists</span>
             <span className="section-sub">Open an artist to hear their tracks</span>
           </h2>
-          <div className="audius-section">
-            <AudiusSection mode="artists" limit={12} layout="row" />
+          <div className="music-section">
+            <MusicSection mode="artists" limit={12} layout="row" />
           </div>
 
           {/* Your Playlists + Favorites, side by side */}
@@ -342,7 +359,7 @@ export default function Home() {
               ) : (
                 <ul className="track-list">
                   {favorites.map((t, i) => (
-                    <TrackRow key={t.external_id} track={t} queue={favorites} index={i} suffix=" • Audius" />
+                    <TrackRow key={t.external_id} track={t} queue={favorites} index={i} suffix={providerSuffix(t.external_id)} />
                   ))}
                 </ul>
               )}
@@ -368,7 +385,7 @@ export default function Home() {
                   queue={top}
                   index={i}
                   meta={`${t.plays} ${t.plays === 1 ? 'play' : 'plays'}`}
-                  suffix=" • Audius"
+                  suffix={providerSuffix(t.external_id)}
                 />
               ))}
             </ol>

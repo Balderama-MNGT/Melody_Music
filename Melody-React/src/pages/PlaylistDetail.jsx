@@ -13,6 +13,7 @@ import {
   removeTrackFromPlaylist,
   renamePlaylist,
 } from '../lib/db.js'
+import { providerSuffix } from '../lib/api.js'
 import { plural } from '../lib/format.js'
 
 /**
@@ -34,6 +35,12 @@ export default function PlaylistDetail() {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  /* Every play started from this page establishes this playlist as the active
+     playback context - including clicking a single row later. */
+  const playlistSource = playlist
+    ? { type: 'playlist', id: playlist.id, name: playlist.name }
+    : null
 
   const load = useCallback(() => {
     setState('loading')
@@ -125,7 +132,7 @@ export default function PlaylistDetail() {
 
           <div className="playlist-tools">
             {tracks.length > 0 && (
-              <button type="button" className="btn btn-primary" onClick={() => playQueue(tracks, 0)}>
+              <button type="button" className="btn btn-primary" onClick={() => playQueue(tracks, 0, playlistSource)}>
                 <Icon name="play" size={16} /> <span>Play all</span>
               </button>
             )}
@@ -159,8 +166,7 @@ export default function PlaylistDetail() {
               title="This playlist is empty"
               text={
                 <>
-                  Use the <strong>add to playlist</strong> button on any song (including Audius
-                  tracks) to build it out.
+                  Use the <strong>add to playlist</strong> button on any song to build it out.
                 </>
               }
             >
@@ -176,8 +182,9 @@ export default function PlaylistDetail() {
                   track={t}
                   queue={tracks}
                   index={i}
+                  source={playlistSource}
                   showAddPl={false}
-                  suffix=" • Audius"
+                  suffix={providerSuffix(t.external_id)}
                   rightNode={
                     <button
                       type="button"

@@ -14,7 +14,7 @@ import { usePlayer } from '../context/PlayerContext.jsx'
  * artistExtra  - node appended inside the artist line (e.g. the phone-only time)
  * rightNode    - extra control after the standard buttons (e.g. remove)
  * showAddPl    - show the "add to playlist" button (off inside a playlist)
- * suffix       - appended to the artist (" • Audius")
+ * suffix       - appended to the artist (" • YouTube" / " • Audius")
  */
 export default function TrackRow({
   track,
@@ -26,16 +26,17 @@ export default function TrackRow({
   showAddPl = true,
   suffix = '',
   className = '',
+  source = null,
 }) {
   const { playQueue, current } = usePlayer()
   const isCurrent = Boolean(current && current.external_id === track.external_id)
   const list = queue || [track]
 
-  const play = () => playQueue(list, index)
+  const play = () => playQueue(list, index, source)
 
   return (
     <li
-      className={`track audius-item${isCurrent ? ' is-current' : ''}${className ? ` ${className}` : ''}`}
+      className={`track music-item${isCurrent ? ' is-current' : ''}${className ? ` ${className}` : ''}`}
       data-external={track.external_id}
     >
       <button

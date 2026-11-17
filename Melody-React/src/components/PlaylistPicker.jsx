@@ -99,7 +99,7 @@ export default function PlaylistPicker({ track, onClose }) {
               key={pl.id}
               type="button"
               className="pl-item"
-              onClick={(e) => addTo(pl.id, '', e.currentTarget)}
+              onClick={(e) => addTo(pl.id, pl.name, e.currentTarget)}
             >
               {pl.name}
             </button>

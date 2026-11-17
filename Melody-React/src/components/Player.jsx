@@ -6,9 +6,12 @@ import { usePlayer } from '../context/PlayerContext.jsx'
 import { fmtDuration } from '../lib/format.js'
 
 /**
- * Bottom player bar - the React port of includes/player.php + assets/js/player.js
- * markup. All transport state comes from PlayerContext, which owns the single
- * <audio> element so the music never stops while you move between pages.
+ * Compact bottom bar. Every value comes from PlayerContext, which owns the
+ * single YouTube player.
+ *   LEFT   - artwork + song title/artist
+ *   CENTER - Previous / Play-Pause / Next, with the seek bar underneath
+ *   RIGHT  - favorite, add-to-playlist, repeat and expand
+ * There is no in-app volume control; listeners use their device volume.
  */
 const REPEAT_LABELS = { off: 'Off', all: 'All', one: 'One' }
 
@@ -19,22 +22,32 @@ export default function Player() {
     loading,
     time,
     duration,
-    volume,
     repeat,
+    shuffle,
     hasTrack,
     toggle,
     next,
     prev,
     seekPercent,
-    setVolume,
     cycleRepeat,
+    toggleShuffle,
+    openPlayer,
   } = usePlayer()
 
   const percent = duration > 0 ? Math.min(100, (time / duration) * 100) : 0
+  const title = current ? current.title : 'No song selected'
+  const artist = current ? current.artist || 'Unknown artist' : 'Choose a track to start listening'
+
+  /* Clicking empty bar space opens the expanded view. */
+  const onSurfaceClick = (e) => {
+    if (!hasTrack) return
+    if (e.target.closest('button, input, a, label, .pl-overlay')) return
+    openPlayer()
+  }
 
   return (
-    <footer className={`player${loading ? ' is-loading' : ''}`} id="player">
-      {/* LEFT: now playing */}
+    <footer className={`player${loading ? ' is-loading' : ''}`} id="player" onClick={onSurfaceClick}>
+      {/* LEFT: artwork + metadata */}
       <div className="player-info">
         <div className="player-cover">
           {current ? (
@@ -46,16 +59,12 @@ export default function Player() {
           )}
         </div>
         <div className="player-meta">
-          <div className="player-title">{current ? current.title : 'No song selected'}</div>
-          <div className="player-artist">
-            {current ? current.artist || 'Unknown artist' : 'Choose a track to start listening'}
-          </div>
+          <div className="player-title" title={title}>{title}</div>
+          <div className="player-artist" title={artist}>{artist}</div>
         </div>
-        <FavButton track={current} />
-        <AddToPlaylistButton track={current} />
       </div>
 
-      {/* CENTER: transport + progress */}
+      {/* CENTER: primary transport + progress */}
       <div className="player-center">
         <div className="player-controls">
           <button
@@ -96,18 +105,6 @@ export default function Player() {
           >
             <Icon name="skip-forward" size={18} />
           </button>
-
-          {/* Off -> All -> One: the mode decides what happens when a track ends */}
-          <button
-            type="button"
-            className={`btn-icon player-btn player-btn-repeat${repeat !== 'off' ? ' is-active' : ''}`}
-            title={`Repeat: ${REPEAT_LABELS[repeat] || REPEAT_LABELS.off}`}
-            aria-label={`Repeat: ${REPEAT_LABELS[repeat] || REPEAT_LABELS.off}`}
-            data-repeat={repeat}
-            onClick={cycleRepeat}
-          >
-            <Icon name={repeat === 'one' ? 'repeat-1' : 'repeat'} size={18} />
-          </button>
         </div>
 
         <div className="player-seek">
@@ -126,23 +123,45 @@ export default function Player() {
         </div>
       </div>
 
-      {/* RIGHT: volume */}
-      <div className="player-volume">
-        <span className="player-volume-icon" aria-hidden="true">
-          <Icon name={volume <= 0 ? 'volume-x' : 'volume-2'} size={18} />
-        </span>
-        <label className="visually-hidden" htmlFor="volumeBar">
-          Volume
-        </label>
-        <input
-          id="volumeBar"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={volume}
-          onChange={(e) => setVolume(Number(e.target.value))}
-        />
+      {/* RIGHT: secondary actions */}
+      <div className="player-right">
+        <FavButton track={current} />
+        <AddToPlaylistButton track={current} />
+        <span className="player-right-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className={`btn-icon player-btn player-btn-shuffle${shuffle ? ' is-active' : ''}`}
+          title={`Shuffle: ${shuffle ? 'On' : 'Off'}`}
+          aria-label={`Shuffle: ${shuffle ? 'On' : 'Off'}`}
+          aria-pressed={shuffle}
+          data-shuffle={shuffle ? 'on' : 'off'}
+          onClick={toggleShuffle}
+        >
+          <Icon name="shuffle" size={18} />
+        </button>
+        <button
+          type="button"
+          className={`btn-icon player-btn player-btn-repeat${repeat !== 'off' ? ' is-active' : ''}`}
+          title={`Repeat: ${REPEAT_LABELS[repeat] || REPEAT_LABELS.off}`}
+          aria-label={`Repeat: ${REPEAT_LABELS[repeat] || REPEAT_LABELS.off}`}
+          data-repeat={repeat}
+          onClick={cycleRepeat}
+        >
+          <Icon name={repeat === 'one' ? 'repeat-1' : 'repeat'} size={18} />
+        </button>
+        <button
+          type="button"
+          className="btn-icon player-btn player-expand"
+          aria-label="Open now playing"
+          title="Open now playing"
+          disabled={!hasTrack}
+          onClick={(e) => {
+            e.stopPropagation()
+            openPlayer()
+          }}
+        >
+          <Icon name="chevron-up" size={18} />
+        </button>
       </div>
     </footer>
   )

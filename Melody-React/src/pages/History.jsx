@@ -5,6 +5,7 @@ import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
 import { usePlayer } from '../context/PlayerContext.jsx'
 import { distinctByTrack, fetchHistory } from '../lib/db.js'
+import { providerSuffix } from '../lib/api.js'
 import { formatDate, formatDateShort, formatTime, localDay, plural, timeAgo } from '../lib/format.js'
 
 /** "Oct 24, 2026" used by the "Earlier" bucket. */
@@ -39,6 +40,16 @@ export default function History() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    const refresh = () => {
+      fetchHistory()
+        .then((rows) => setTracks(distinctByTrack(rows)))
+        .catch(() => {})
+    }
+    window.addEventListener('melody:plays-changed', refresh)
+    return () => window.removeEventListener('melody:plays-changed', refresh)
+  }, [])
 
   /* Bucket by local day, newest bucket first (rows are already sorted DESC). */
   const today = localDay(new Date().toISOString())
@@ -134,7 +145,7 @@ export default function History() {
                         className="history-row"
                         meta={historyMeta(row, label)}
                         artistExtra={<span className="track-when"> &bull; {historyShort(row, label)}</span>}
-                        suffix=" • Audius"
+                        suffix={providerSuffix(row.external_id)}
                       />
                     ))}
                   </ul>

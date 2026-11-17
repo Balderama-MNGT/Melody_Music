@@ -1,23 +1,49 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { useToast } from './ToastContext.jsx'
-import { resolveStreamUrl } from '../lib/api.js'
-import { recordPlay } from '../lib/db.js'
+import { isYouTubeId } from '../lib/api.js'
+import { YtPlayer, YT_STATE } from '../lib/ytPlayer.js'
+import { recordPlaySession } from '../lib/db.js'
+import { youtubeRequest } from '../lib/api.js'
+import { pickRecommendations, recommendationErrorMessage } from '../lib/recommendations.js'
 
 /**
- * The one music player - a direct port of assets/js/player.js.
+ * The one music player - now backed by the official YouTube IFrame Player API.
  *
- * Every track that plays (Audius streams alike) goes through this context:
- * queue, next/previous, seeking, remembered volume, failure handling and
- * "log a play once per track start". The <audio> element lives here and is
- * never remounted while you move around the app, so the music keeps playing.
+ * Every track goes through this context: queue, next/previous, seeking,
+ * repeat mode, failure handling and "log a play once per track start".
+ * The public API (and therefore every component in the app) is unchanged from
+ * the <audio> version; only the engine behind it swapped.
+ *
+ * The YouTube player lives in ONE panel rendered by Layout but shown ONLY with
+ * the Expanded Now Playing screen. Minimising pauses playback first, so no
+ * video ever plays from a hidden player (YouTube Developer Policies). The
+ * iframe stays >=200x200, unobstructed, and is never rebuilt.
  */
 const PlayerContext = createContext(null)
 
-const VOLUME_KEY = 'melody:volume'
 const REPEAT_KEY = 'melody:repeat'
 /* off -> all -> one, in the order the button cycles through them */
 const REPEAT_MODES = ['off', 'all', 'one']
+const SHUFFLE_KEY = 'melody:shuffle'
+
+/** How often the panel position is mirrored into React while playing. */
+const TICK_MS = 250
+
+/* A play is only counted after the listener has actually heard this much of
+   the track. The backend enforces the same floor - this is just the client
+   timer. Configurable via VITE_MIN_PLAY_MS (milliseconds, default 3000). */
+const MIN_PLAY_MS = Math.max(0, Number(import.meta.env.VITE_MIN_PLAY_MS) || 3000)
+const SEEN_LIMIT = 60
 
 function normalizeQueue(items) {
   return (items || []).map((it) => ({
@@ -32,14 +58,28 @@ function normalizeQueue(items) {
   }))
 }
 
-function readVolume() {
-  try {
-    const saved = parseFloat(localStorage.getItem(VOLUME_KEY))
-    if (isFinite(saved) && saved >= 0 && saved <= 1) return saved
-  } catch {
-    /* private mode etc. */
+/**
+ * User-facing text for an IFrame onError code, so a failure says what
+ * actually happened instead of one blanket "may be unavailable" - and the
+ * code is quoted back for a bug report. Never worded as a workaround: when
+ * YouTube refuses a video we say so plainly and the queue moves on.
+ */
+function videoErrorMessage(code, title) {
+  const name = title || 'This track'
+  const at = ` (YouTube error ${code})`
+  switch (code) {
+    case 2:
+      return `“${name}” can’t be played - YouTube no longer accepts this video id${at}. Pick another result.`
+    case 5:
+      return `“${name}” couldn’t start in the YouTube player${at}. Pick another result.`
+    case 100:
+      return `“${name}” is no longer on YouTube - it may have been removed or made private${at}. Pick another result.`
+    case 101:
+    case 150:
+      return `“${name}” can’t be embedded by its owner, so it can’t be played here${at}. Pick another result.`
+    default:
+      return `“${name}” can’t be played right now. It may be unavailable.${code ? at : ''}`
   }
-  return 1
 }
 
 function readRepeat() {
@@ -52,14 +92,26 @@ function readRepeat() {
   return 'off'
 }
 
+function readShuffle() {
+  try {
+    return localStorage.getItem(SHUFFLE_KEY) === 'on'
+  } catch {
+    return false
+  }
+}
+
 export function PlayerProvider({ children }) {
   const toast = useToast()
   const { session } = useAuth()
 
-  const audioRef = useRef(null)
-  if (audioRef.current === null && typeof window !== 'undefined') {
-    audioRef.current = new Audio()
-  }
+  /* The panel host div (rendered below) - the IFrame API owns what goes in it. */
+  const hostRef = useRef(null)
+  /* The OUTER panel. Its geometry is restyled when the expanded screen opens,
+     but the node itself is never moved or recreated: reparenting an <iframe>
+     reloads it, which would restart the song. */
+  const panelRef = useRef(null)
+  const ytRef = useRef(null)
+  const pendingRef = useRef(null) // video to start as soon as the player exists
 
   const [queue, setQueue] = useState([])
   const [index, setIndex] = useState(-1)
@@ -67,48 +119,136 @@ export function PlayerProvider({ children }) {
   const [loading, setLoading] = useState(false)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [volume, setVolumeState] = useState(readVolume)
   const [repeat, setRepeat] = useState(readRepeat)
+  const [shuffle, setShuffle] = useState(readShuffle)
+  /* True once a playable (YouTube) video has been requested: it is what keeps
+     the panel on screen, so a queue of unplayable legacy rows never shows an
+     empty player. */
+  const [hasVideo, setHasVideo] = useState(false)
+  /* UI only - never touches the player. The compact bar and the expanded Now
+     Playing screen are two views of ONE playback state. */
+  const [expanded, setExpanded] = useState(false)
+  /* Playback context. Playlist mode uses ONLY the active playlist as its
+     queue; recommendation mode uses up-next + genre-based refills. */
+  const [playbackMode, setPlaybackMode] = useState('recommendations')
+  const [activePlaylist, setActivePlaylist] = useState(null)
+  /* Dedicated recommendation queue - kept separate from playback history. */
+  const [upNext, setUpNext] = useState([])
+  /* Last recommendation failure (quota / rate limit / upstream), if any. */
+  const [recommendationError, setRecommendationError] = useState(null)
+  /* Ids already played or suggested, used to avoid repeats. */
+  const [seenIds, setSeenIds] = useState([])
 
   const queueRef = useRef(queue)
   const indexRef = useRef(index)
   const repeatRef = useRef(repeat)
-  const loggedRef = useRef(false)
+  const shuffleRef = useRef(shuffle)
+  const playbackModeRef = useRef(playbackMode)
+  /* One guard per track completion: YouTube can emit ENDED more than once (or
+     a stale event can arrive after a track change). The key is the playback
+     session + video id, so one completion can advance at most once. */
+  const endedGuardRef = useRef({ key: '', at: 0 })
+  /* One in-flight recommendation refill, shared by Next, auto-advance and the
+     UI. Prevents a search per ended event / per re-render. */
+  const refillRef = useRef(null)
+  /* Honour a 429/503 Retry-After instead of firing another search per render. */
+  const recRetryUntilRef = useRef(0)
+  const durationRef = useRef(duration)
+  const playingRef = useRef(playing)
   const errorHandledRef = useRef(false)
   const failStreakRef = useRef(0)
+  const legacyWarnedRef = useRef(false)
   const sessionRef = useRef(session)
   const toastRef = useRef(toast)
+  const upNextRef = useRef(upNext)
+  const seenRef = useRef(seenIds)
+  /* One id per playback session: repeat-one and manual restarts reuse it,
+     a genuine new track selection generates a new one. */
+  const sessionIdRef = useRef('')
+  const recordedRef = useRef(false)
+  const playTimerRef = useRef(0)
 
   queueRef.current = queue
   indexRef.current = index
   repeatRef.current = repeat
+  shuffleRef.current = shuffle
+  playbackModeRef.current = playbackMode
+  durationRef.current = duration
+  playingRef.current = playing
   sessionRef.current = session
   toastRef.current = toast
+  upNextRef.current = upNext
+  seenRef.current = seenIds
 
   const current = index >= 0 && index < queue.length ? queue[index] : null
 
+  const newSessionId = () =>
+    (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `s-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+
+  const clearRecommendationError = useCallback(() => setRecommendationError(null), [])
+
+  /** Remember ids we have played or suggested so they are not repeated. */
+  const markSeen = useCallback((ids) => {
+    const nextSeen = [...new Set([...(seenRef.current || []), ...ids.filter(Boolean)])].slice(-SEEN_LIMIT)
+    seenRef.current = nextSeen
+    setSeenIds(nextSeen)
+  }, [])
+
+  /** Recommendations become the dedicated "up next" queue.ids are marked as
+      seen only when they actually play, so this does not retrigger the UI's
+      recommendation fetch. */
+  const setRecommendationQueue = useCallback((tracks) => {
+    const list = (tracks || []).filter((t) => t && t.external_id)
+    upNextRef.current = list
+    setUpNext(list)
+  }, [])
+
   /* ------------------------------- transport ------------------------------- */
 
-  const tryPlay = useCallback(() => {
-    const a = audioRef.current
-    if (!a) return
-    const p = a.play()
-    if (p && typeof p.catch === 'function') {
-      p.catch((err) => {
-        setLoading(false)
-        // The browser wants a gesture first - leave the state honest.
-        if (err && err.name === 'NotAllowedError') {
-          setPlaying(false)
-          return
-        }
-        if (err && err.name === 'AbortError') return // a newer load replaced it
-        fail()
-      })
+  /**
+   * YouTube requires an autoplay/auto-advanced video to be more than half
+   * visible when playback starts. In the compact view the panel is fixed and
+   * always visible; in the expanded view the document scrolls, so bring the
+   * video slot back into view first.
+   */
+  const ensurePlayerVisible = useCallback(() => {
+    if (typeof document === 'undefined') return
+    const target = document.querySelector('.np-video-slot') || panelRef.current
+    if (!target || typeof target.getBoundingClientRect !== 'function') return
+    const r = target.getBoundingClientRect()
+    if (r.width <= 0 || r.height <= 0) return
+    const visibleW = Math.max(0, Math.min(r.right, window.innerWidth) - Math.max(r.left, 0))
+    const visibleH = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0))
+    if ((visibleW * visibleH) / (r.width * r.height) < 0.5) {
+      target.scrollIntoView({ block: 'center' })
     }
   }, [])
 
-  /** A track that cannot be streamed: say so, then move on (never loop forever). */
-  const fail = useCallback(() => {
+  /** Ask the player for a video now, or remember it until the player exists. */
+  const startVideo = useCallback((videoId, autoplay) => {
+    if (autoplay) ensurePlayerVisible()
+    pendingRef.current = { videoId, autoplay }
+    const yt = ytRef.current
+    if (yt) yt.load(videoId, autoplay)
+  }, [ensurePlayerVisible])
+
+  const tryPlay = useCallback(() => {
+    ytRef.current?.play()
+  }, [])
+
+  /* Pure view switch: the SAME iframe is relocated into the expanded video
+     slot by the layout effect below. No pause, no reload, no new YT.Player. */
+  const openPlayer = useCallback(() => setExpanded(true), [])
+  const closePlayer = useCallback(() => setExpanded(false), [])
+
+  /**
+   * A track that cannot be played: say so, then move on (never loop forever).
+   * `message` overrides the default wording - used for rows saved before the
+   * migration, whose Audius ids no player can resolve any more.
+   */
+  const fail = useCallback((message) => {
     if (errorHandledRef.current) return
     errorHandledRef.current = true
     setLoading(false)
@@ -116,7 +256,8 @@ export function PlayerProvider({ children }) {
 
     const song = queueRef.current[indexRef.current]
     toastRef.current(
-      `“${song ? song.title : 'This track'}” can’t be played right now. It may be unavailable.`,
+      message ||
+        `“${song ? song.title : 'This track'}” can’t be played right now. It may be unavailable.`,
       true
     )
 
@@ -132,110 +273,363 @@ export function PlayerProvider({ children }) {
     }
   }, [])
 
-  const load = useCallback((i, autoplay) => {
-    const q = queueRef.current
-    if (i < 0 || i >= q.length) return
-    const song = q[i]
+  /** Record this session once, after a minimum listened time. Scheduled both
+     at load time and on PLAYING, because switching tracks while already
+     playing does not always emit a second PLAYING event. */
+  const schedulePlayRecord = useCallback((song, sessionId) => {
+    if (!song || !sessionRef.current || !isYouTubeId(song.external_id) || recordedRef.current) return
+    clearTimeout(playTimerRef.current)
+    playTimerRef.current = setTimeout(() => {
+      const currentSong = queueRef.current[indexRef.current]
+      if (recordedRef.current || !currentSong || currentSong.external_id !== song.external_id) return
+      if (ytRef.current && ytRef.current.getState && ytRef.current.getState() !== YT_STATE.PLAYING) return
+      recordedRef.current = true
+      if (import.meta.env.DEV) {
+        console.debug('[melody] listening threshold reached, submitting play', {
+          sessionId,
+          videoId: song.external_id,
+          listenedMs: MIN_PLAY_MS,
+        })
+      }
+      recordPlaySession(currentSong, sessionId, MIN_PLAY_MS)
+        .then((result) => {
+          if (import.meta.env.DEV) {
+            console.debug('[melody] play record result', {
+              sessionId,
+              videoId: song.external_id,
+              recorded: result && result.recorded,
+              duplicate: Boolean(result && result.duplicate),
+            })
+          }
+          /* Only a confirmed INSERT may change the displayed counter. */
+          if (result && result.recorded === true) {
+            window.dispatchEvent(new Event('melody:plays-changed'))
+          }
+        })
+        .catch((err) => {
+          if (import.meta.env.DEV) {
+            console.warn('[melody] play record FAILED', {
+              sessionId,
+              videoId: song.external_id,
+              error: (err && err.message) || String(err),
+            })
+          }
+        })
+    }, MIN_PLAY_MS)
+  }, [])
 
-    errorHandledRef.current = false
-    loggedRef.current = false
-    indexRef.current = i
-    setIndex(i)
-    setTime(0)
-    setDuration(Number(song.duration) || 0)
+  const load = useCallback(
+    (i, autoplay) => {
+      const q = queueRef.current
+      if (i < 0 || i >= q.length) return
+      const song = q[i]
 
-    const a = audioRef.current
-    if (!a) return
+      errorHandledRef.current = false
+      indexRef.current = i
+      setIndex(i)
+      setTime(0)
+      setDuration(Number(song.duration) || 0)
+      /* Every new track selection is a new listening session. Automatic
+         restarts (repeat-one / prev-restart) do NOT call load, so they keep
+         the same id and cannot create a second play record. */
+      sessionIdRef.current = newSessionId()
+      recordedRef.current = false
+      if (import.meta.env.DEV) {
+        console.debug('[melody] playback session created', {
+          sessionId: sessionIdRef.current,
+          videoId: song.external_id,
+        })
+      }
+      clearTimeout(playTimerRef.current)
+      markSeen([song.external_id])
 
-    if (autoplay) setLoading(true)
-
-    // The <audio> element cannot send an Authorization header, so ask our
-    // authenticated function for the real media URL first, then hand that
-    // to the audio element (Range/seeking keep working).
-    resolveStreamUrl(song.external_id)
-      .then((url) => {
-        if (indexRef.current !== i) return // a newer track took over
-        a.src = url
-        if (autoplay) tryPlay()
-        else setLoading(false)
-      })
-      .catch((err) => {
-        if (indexRef.current !== i) return
+      /* Rows saved before the migration carry Audius ids: no video id, no
+         player. Warn once per queue and skip to the next playable track.
+         The panel is deliberately NOT hidden here: it only ever hides when a
+         video is truly gone (logout), and blanking it for the 600ms before the
+         skip would take a live, playing iframe through display:none and back -
+         the exact visibility switch that can knock an HTML5 player over. */
+      if (!isYouTubeId(song.external_id)) {
+        pendingRef.current = null
         setLoading(false)
-        if (err && err.status === 401) {
-          setPlaying(false)
-          toastRef.current('Your session has expired. Please log in again.', true)
-          return
+        setPlaying(false)
+        if (!legacyWarnedRef.current) {
+          legacyWarnedRef.current = true
+          toastRef.current(
+            'Some songs here were saved from Audius and can’t be played any more.',
+            true
+          )
         }
-        fail()
-      })
-  }, [tryPlay, fail])
+        failStreakRef.current += 1
+        const len = q.length
+        if (len > 1 && failStreakRef.current < len) {
+          const idx = i
+          setTimeout(() => {
+            if (indexRef.current === idx && queueRef.current.length > 1) {
+              loadRef.current(idx + 1 < queueRef.current.length ? idx + 1 : 0, true)
+            }
+          }, 600)
+        }
+        return
+      }
+
+      setHasVideo(true)
+      if (autoplay) setLoading(true)
+      else setLoading(false)
+      startVideo(song.external_id, autoplay)
+      if (autoplay) schedulePlayRecord(song, sessionIdRef.current)
+    },
+    [startVideo, markSeen, schedulePlayRecord]
+  )
 
   const loadRef = useRef(load)
   loadRef.current = load
 
+  /**
+   * Start a finite queue. Passing a playlist source establishes Playlist Mode;
+   * every other caller (search, history, favourites, a direct link) starts in
+   * Recommendation Mode. The two modes never share a queue.
+   */
   const playQueue = useCallback(
-    (items, startIndex = 0) => {
+    (items, startIndex = 0, source = null) => {
       const normalized = normalizeQueue(items)
       if (!normalized.length) return
+      const fromPlaylist = Boolean(source && source.type === 'playlist' && source.id)
+      setPlaybackMode(fromPlaylist ? 'playlist' : 'recommendations')
+      setActivePlaylist(
+        fromPlaylist
+          ? { id: String(source.id), name: String(source.name || 'Playlist') }
+          : null
+      )
+      /* Clear any recommendation leftovers so songs from another context can
+         never leak into the new queue. */
+      upNextRef.current = []
+      setUpNext([])
+      setRecommendationError(null)
       queueRef.current = normalized
       setQueue(normalized)
       failStreakRef.current = 0
+      legacyWarnedRef.current = false
       const i = Math.max(0, Math.min(Number(startIndex) || 0, normalized.length - 1))
       load(i, true)
     },
     [load]
   )
 
-  const next = useCallback(() => {
+  /**
+   * Fetch another similar set ONLY when the up-next queue is empty. Concurrent
+   * callers (auto-advance, manual Next, the visible recommendations list) share
+   * one in-flight request, so switching tracks or ending a song never triggers
+   * a search just because the UI re-rendered.
+   */
+  const refillRecommendations = useCallback(
+    (base) => {
+      if (refillRef.current) return refillRef.current
+      if (Date.now() < recRetryUntilRef.current) return Promise.resolve([])
+      const song = base || queueRef.current[indexRef.current]
+      if (!song) return Promise.resolve([])
+      const task = (async () => {
+        try {
+          const res = await youtubeRequest({
+            action: 'recommendations',
+            id: song.external_id,
+            title: song.title,
+            artist: song.artist,
+            genre: song.genre,
+            limit: 14,
+          })
+          const list = pickRecommendations(res.tracks, song, seenRef.current, 8)
+          /* Never clear a previously valid queue on a failed/empty refresh. */
+          if (list.length) setRecommendationQueue(list)
+          setRecommendationError(null)
+          return list
+        } catch (err) {
+          const retryAfter = Number(err && err.retryAfter)
+          if (Number.isFinite(retryAfter) && retryAfter > 0) {
+            recRetryUntilRef.current = Date.now() + retryAfter * 1000
+          }
+          setRecommendationError({
+            message: recommendationErrorMessage(err),
+            retryAfter,
+            retryAt: recRetryUntilRef.current,
+          })
+          return []
+        }
+      })()
+      refillRef.current = task
+      task.finally(() => {
+        if (refillRef.current === task) refillRef.current = null
+      })
+      return task
+    },
+    [setRecommendationQueue]
+  )
+
+  /**
+   * Advance to a DIFFERENT track. Shared by the Next button and automatic
+   * end-of-song handling so both use exactly the same queue / recommendation
+   * logic. No search is made while up-next or the queue still has a candidate.
+   */
+  const next = useCallback((options = {}) => {
+    const fromEnded = Boolean(options && options.fromEnded)
     const q = queueRef.current
-    if (!q.length) return
-    load(indexRef.current + 1 < q.length ? indexRef.current + 1 : 0, true)
-  }, [load])
+    const idx = indexRef.current
+    const stop = () => {
+      if (fromEnded) { setPlaying(false); setLoading(false) }
+    }
+    if (!q.length || idx < 0) {
+      stop()
+      return
+    }
+
+    /* PLAYLIST MODE: advance only inside the active playlist queue. No up-next
+       recommendations, no history filtering and no search - the saved order
+       is authoritative (shuffle randomises that same queue). */
+    if (playbackModeRef.current === 'playlist') {
+      const others = q.map((t, i) => ({ t, i })).filter(({ i }) => i !== idx)
+      let at = -1
+      if (shuffleRef.current && others.length) {
+        at = others[Math.floor(Math.random() * others.length)].i
+      } else if (idx + 1 < q.length) {
+        at = idx + 1
+      } else if (repeatRef.current === 'all' && q.length > 1) {
+        at = 0
+      }
+      if (at >= 0) load(at, true)
+      else stop() // end of playlist: stay on the last song, playback stops
+      return
+    }
+
+    const playingId = q[idx].external_id || null
+    const seen = seenRef.current || []
+
+    const pick = (list, ignoreSeen = false) => {
+      const usable = (list || []).filter(
+        (t) => t && t.external_id && t.external_id !== playingId &&
+          (ignoreSeen || !seen.includes(t.external_id))
+      )
+      if (!usable.length) return null
+      /* Shuffle picks any available track, never the current one. */
+      const track = shuffleRef.current
+        ? usable[Math.floor(Math.random() * usable.length)]
+        : usable[0]
+      return { track, rest: usable.filter((t) => t.external_id !== track.external_id) }
+    }
+
+    const playFrom = (chosen, rest, sourceQueue) => {
+      upNextRef.current = rest
+      setUpNext(rest)
+      if (sourceQueue) {
+        const at = sourceQueue.findIndex((t) => t.external_id === chosen.external_id)
+        if (at >= 0) {
+          load(at, true)
+          return
+        }
+      }
+      const nq = [...queueRef.current, chosen]
+      queueRef.current = nq
+      setQueue(nq)
+      load(nq.length - 1, true)
+    }
+
+    /* 1) recommendation queue - zero API requests. */
+    const fromUpNext = pick(upNextRef.current)
+    if (fromUpNext) { playFrom(fromUpNext.track, fromUpNext.rest, null); return }
+
+    /* 2) the rest of the real playback queue. */
+    const fromQueue = pick(q.slice(idx + 1))
+    if (fromQueue) { playFrom(fromQueue.track, fromQueue.rest, q); return }
+
+    /* 3) Repeat All wraps the real queue (history is irrelevant here). */
+    if (repeatRef.current === 'all') {
+      const wrapped = pick(q.slice(0, idx), true)
+      if (wrapped) { playFrom(wrapped.track, wrapped.rest, q); return }
+    }
+
+    /* 4) genuinely empty: ONE shared refill, then play from it. */
+    refillRecommendations(q[idx]).then((list) => {
+      if (queueRef.current !== q || indexRef.current !== idx) return
+      const fresh = pick(list)
+      if (fresh) { playFrom(fresh.track, fresh.rest, null); return }
+      if (repeatRef.current === 'all') {
+        const wrapped = pick(queueRef.current.slice(0, indexRef.current), true)
+        if (wrapped) { playFrom(wrapped.track, wrapped.rest, queueRef.current); return }
+      }
+      stop()
+    })
+  }, [load, refillRecommendations])
 
   const prev = useCallback(() => {
     const q = queueRef.current
     if (!q.length) return
-    const a = audioRef.current
-    if (a && a.currentTime > 3) {
-      a.currentTime = 0
+    /* Playlist mode always moves to the previous saved song (or wraps), never
+       to a recommendation from another playlist. */
+    if (playbackModeRef.current === 'playlist') {
+      load(indexRef.current > 0 ? indexRef.current - 1 : q.length - 1, true)
+      return
+    }
+    const yt = ytRef.current
+    // Same rule as the old <audio> version: a few seconds in, "previous"
+    // restarts the song; otherwise it goes to the track before this one.
+    if (yt && yt.getTime() > 3) {
+      yt.seek(0)
       return
     }
     load(indexRef.current > 0 ? indexRef.current - 1 : q.length - 1, true)
   }, [load])
 
   const toggle = useCallback(() => {
-    const a = audioRef.current
-    if (!a) return
-    if (!a.src && queueRef.current.length) {
+    const q = queueRef.current
+    if (!q.length) return
+    const yt = ytRef.current
+    if (!yt || indexRef.current < 0) {
       load(indexRef.current >= 0 ? indexRef.current : 0, true)
       return
     }
-    if (a.paused) {
-      setLoading(true)
-      tryPlay()
+    const state = yt.getState()
+    const active =
+      playingRef.current || state === YT_STATE.PLAYING || state === YT_STATE.BUFFERING
+    if (active) {
+      yt.pause()
     } else {
-      a.pause()
+      setLoading(true)
+      yt.play()
     }
-  }, [load, tryPlay])
+  }, [load])
 
   const seekPercent = useCallback((percent) => {
-    const a = audioRef.current
-    if (!a || !a.duration || !isFinite(a.duration)) return
-    a.currentTime = (Number(percent) / 100) * a.duration
+    const yt = ytRef.current
+    if (!yt) return
+    const total = yt.getDuration() || durationRef.current
+    if (!total || !isFinite(total)) return
+    yt.seek((Number(percent) / 100) * total)
   }, [])
 
-  const setVolume = useCallback((value) => {
-    const v = Math.max(0, Math.min(1, Number(value)))
-    const a = audioRef.current
-    if (a) a.volume = v
-    setVolumeState(v)
-    try {
-      localStorage.setItem(VOLUME_KEY, String(v))
-    } catch {
-      /* private mode etc. */
-    }
-  }, [])
+  /**
+   * Playing a recommendation is an explicit switch back to Recommendation
+   * Mode: it starts a fresh queue for that song instead of appending it to an
+   * active playlist (which would mix the two sources).
+   */
+  const enqueueAndPlay = useCallback(
+    (track) => {
+      const normalized = normalizeQueue([track])
+      if (!normalized.length) return
+      setPlaybackMode('recommendations')
+      setActivePlaylist(null)
+      upNextRef.current = []
+      setUpNext([])
+      setRecommendationError(null)
+      queueRef.current = normalized
+      failStreakRef.current = 0
+      legacyWarnedRef.current = false
+      setQueue(normalized)
+      load(0, true)
+    },
+    [load]
+  )
+
+  /** Jump to a row of the active queue without changing its source. */
+  const playAt = useCallback((index) => load(index, true), [load])
 
   /**
    * Off -> All -> One -> Off. Only the mode itself changes: the queue, the
@@ -252,120 +646,267 @@ export function PlayerProvider({ children }) {
     }
   }, [])
 
-  /* Repeat One: let the <audio> element restart the track at its end - it
-     needs no 'ended' event, no reload and it keeps the exact position/state. */
-  useEffect(() => {
-    const a = audioRef.current
-    if (a) a.loop = repeat === 'one'
-  }, [repeat])
+  /** Shuffle only changes WHICH queued track is picked next; it never touches
+      the player, the current position or the playback state. */
+  const toggleShuffle = useCallback(() => {
+    const on = !shuffleRef.current
+    shuffleRef.current = on
+    setShuffle(on)
+    try {
+      localStorage.setItem(SHUFFLE_KEY, on ? 'on' : 'off')
+    } catch {
+      /* private mode etc. */
+    }
+  }, [])
 
-  /* ---------------------------- audio events ---------------------------- */
+  /* ------------------------- YouTube player events ------------------------ */
 
-  useEffect(() => {
-    const a = audioRef.current
-    if (!a) return undefined
+  /**
+   * YouTube's ENDED state - the single place automatic advancement happens.
+   * `endedVideoId` comes from the event's player, so a late event for a song
+   * we already left cannot advance the new one. The per-session guard makes
+   * duplicate ENDED events a no-op.
+   */
+  const handleEnded = useCallback((endedVideoId) => {
+    const song = queueRef.current[indexRef.current]
+    const id = endedVideoId || (song && song.external_id) || ''
+    const guard = `${sessionIdRef.current}:${id}`
+    const now = Date.now()
+    /* Key catches a repeated event for the same completion; the short window
+       also catches a burst of events arriving in the same tick AFTER the next
+       track has already been loaded (the key would then be a new one). It only
+       coalesces duplicate ENDED signals - playback itself is never delayed. */
+    if (endedGuardRef.current.key === guard || now - endedGuardRef.current.at < 1000) return
+    endedGuardRef.current = { key: guard, at: now }
 
-    a.volume = volume
+    const mode = repeatRef.current
+    if (!song) return
 
-    const onPlay = () => setPlaying(true)
-    const onPause = () => setPlaying(false)
-    const onWaiting = () => setLoading(true)
-    const onCanPlay = () => setLoading(false)
-    const onPlaying = () => {
-      setLoading(false)
-      failStreakRef.current = 0
+    // Repeat One: restart the same video. Same session id + same guard key,
+    // so this can never create a second listening-history record.
+    if (mode === 'one') {
+      if (isYouTubeId(song.external_id)) {
+        setTime(0)
+        setDuration(Number(song.duration) || 0)
+        startVideo(song.external_id, true)
+      }
+      return
+    }
 
-      // One history row per track start (best-effort: playback never waits on it).
-      const song = queueRef.current[indexRef.current]
-      if (song && !loggedRef.current) {
-        loggedRef.current = true
-        if (sessionRef.current && song.external_id) {
-          recordPlay(song).catch(() => {})
+    /* Normal AND Repeat All advance through the exact same Next logic. There
+       is deliberately no "seek(0)" fallback here: finishing the last queued
+       song must load the next recommendation, not restart the old one. */
+    nextRef.current({ fromEnded: true })
+  }, [startVideo])
+
+  const handleState = useCallback(
+    (state, videoId) => {
+      if (state === YT_STATE.PLAYING) {
+        setPlaying(true)
+        setLoading(false)
+        failStreakRef.current = 0
+
+        const song = queueRef.current[indexRef.current]
+        if (import.meta.env.DEV) {
+          console.debug('[melody] playback started', {
+            videoId: song ? song.external_id : null,
+            sessionId: sessionIdRef.current,
+          })
         }
-      }
-    }
-    const onError = () => fail()
-    const onEnded = () => {
-      const mode = repeatRef.current
-      const q = queueRef.current
-      if (!q.length) return
-      // Repeat One never normally reaches this (the element loops on its own),
-      // but a mode switched at the very last moment still restarts the song.
-      if (mode === 'one') {
-        a.currentTime = 0
-        tryPlay()
+        // One history row per qualifying session, after a minimum listen time.
+        // The backend enforces the same rule and the session id is unique, so
+        // repeated PLAYING events / repeat-one restarts cannot add rows.
+        if (song) schedulePlayRecord(song, sessionIdRef.current)
         return
       }
-      // Repeat All: wrap the queue back to its first track.
-      if (mode === 'all') {
-        nextRef.current()
-        return
-      }
-      // Repeat Off: play through the queue, then stop on the last track.
-      if (indexRef.current < q.length - 1) nextRef.current()
-      else {
-        a.currentTime = 0
+      if (state === YT_STATE.PAUSED) {
         setPlaying(false)
+        setLoading(false)
+        return
       }
-    }
-    const onLoadedMetadata = () => {
-      if (isFinite(a.duration)) setDuration(a.duration)
-    }
-    const onTimeUpdate = () => {
-      if (a.duration && isFinite(a.duration)) setTime(a.currentTime)
-    }
+      if (state === YT_STATE.BUFFERING) {
+        setLoading(true)
+        return
+      }
+      if (state === YT_STATE.ENDED) {
+        /* A stale ENDED from the previous video may arrive right after a track
+           change; it must not be treated as the new song finishing. */
+        const song = queueRef.current[indexRef.current]
+        if (videoId && song && song.external_id && videoId !== song.external_id) return
+        handleEnded(videoId)
+        return
+      }
+      // UNSTARTED / CUED: nothing is moving yet.
+      setPlaying(false)
+      setLoading(false)
+    },
+    [handleEnded, schedulePlayRecord]
+  )
 
-    a.addEventListener('play', onPlay)
-    a.addEventListener('pause', onPause)
-    a.addEventListener('waiting', onWaiting)
-    a.addEventListener('canplay', onCanPlay)
-    a.addEventListener('playing', onPlaying)
-    a.addEventListener('error', onError)
-    a.addEventListener('ended', onEnded)
-    a.addEventListener('loadedmetadata', onLoadedMetadata)
-    a.addEventListener('timeupdate', onTimeUpdate)
+  /* Video-level failure: deleted, private, restricted or not embeddable.
+     The player reports WHICH video failed as well as why - an event that
+     belongs to a track we have already moved past is dropped, so a failure
+     can never be blamed on (or stop) the track that is selected now. */
+  const handleVideoError = useCallback(
+    (err) => {
+      const code = typeof err === 'number' ? err : err ? Number(err.code) : 0
+      const failedId = (err && err.videoId) || null
+      const song = queueRef.current[indexRef.current]
+      /* TEMPORARY diagnostic: exactly what YouTube reported, so a failure on
+         any machine can be identified without guessing - the code, the id the
+         player actually tried to play, and the id we asked for. Contains no
+         credentials: only an error code and a public video id. */
+      if (import.meta.env.DEV) {
+        console.warn('[melody] YouTube onError', {
+          code: Number.isFinite(code) ? code : 0,
+          videoId: failedId,
+          requested: song ? song.external_id : null,
+          title: song ? song.title : null,
+        })
+      }
+      if (failedId && song && song.external_id && failedId !== song.external_id) return
+      fail(videoErrorMessage(Number.isFinite(code) ? code : 0, song ? song.title : ''))
+    },
+    [fail]
+  )
+
+  /* The player itself could not start (offline, blocked script, timeout). */
+  const handlePlayerError = useCallback(
+    (err) => {
+      fail(err && err.message ? err.message : 'Could not start the YouTube player.')
+    },
+    [fail]
+  )
+
+  /* --------------------- create the player once it shows ------------------ */
+  // Runs only after the panel is on screen (hasVideo flips in the same commit
+  // that makes it visible), which is what YouTube's autoplay rules ask for.
+  useEffect(() => {
+    if (!hasVideo || ytRef.current || !hostRef.current) return undefined
+    const yt = new YtPlayer(hostRef.current, {
+      onState: handleState,
+      onVideoError: handleVideoError,
+      onPlayerError: handlePlayerError,
+    })
+    ytRef.current = yt
+    /* No in-app volume control: the listener uses their device volume. */
+    yt.setVolume(1)
+    const pending = pendingRef.current
+    if (pending) yt.load(pending.videoId, pending.autoplay)
+    return undefined
+  }, [hasVideo, handleState, handleVideoError, handlePlayerError])
+
+  /* Anything pinned above the player bar (the toast) must stay clear of the
+     video panel: style.css moves it up while this class is on <body>. */
+  useEffect(() => {
+    document.body.classList.toggle('has-yt-panel', hasVideo)
+    return () => document.body.classList.remove('has-yt-panel')
+  }, [hasVideo])
+
+  /* Body class drives the expanded overlay's stacking rules. */
+  useLayoutEffect(() => {
+    document.body.classList.toggle('np-open', expanded)
+    return () => document.body.classList.remove('np-open')
+  }, [expanded])
+
+  /* Put the SAME player into the expanded screen's video slot. Only geometry
+     is written to the existing node - no React re-parent, no new YT.Player -
+     so switching views preserves the exact playback position. */
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return undefined
+    if (!expanded) {
+      panel.style.transform = ''
+      panel.style.willChange = ''
+      panel.style.left = ''
+      panel.style.top = ''
+      panel.style.width = ''
+      panel.style.height = ''
+      return undefined
+    }
+    /* Keep the fixed iframe glued to its in-flow slot while the whole view
+       scrolls normally. Reading the rect and writing a compositor-only
+       transform inside rAF avoids the layout thrash / touch-scroll lag that
+       caused the old left/top-on-scroll jitter. */
+    const slot = document.querySelector('.np-video-slot')
+    if (!slot) return undefined
+    const first = slot.getBoundingClientRect()
+    panel.style.left = '0px'
+    panel.style.top = '0px'
+    panel.style.width = `${Math.round(first.width)}px`
+    panel.style.height = `${Math.round(first.height)}px`
+    panel.style.willChange = 'transform'
+
+    let frame = 0
+    const follow = () => {
+      frame = 0
+      const r = slot.getBoundingClientRect()
+      /* Resize with the slot on viewport changes; transform stays compositor
+         only, so scrolling never triggers layout. */
+      const w = `${Math.round(r.width)}px`
+      const h = `${Math.round(r.height)}px`
+      if (panel.style.width !== w) panel.style.width = w
+      if (panel.style.height !== h) panel.style.height = h
+      panel.style.transform = `translate3d(${Math.round(r.left)}px, ${Math.round(r.top)}px, 0)`
+    }
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(follow)
+    }
+    follow()
+
+    /* The document/window now owns scrolling, so follow window scroll. */
+    window.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
+    if (ro) ro.observe(slot)
 
     return () => {
-      a.removeEventListener('play', onPlay)
-      a.removeEventListener('pause', onPause)
-      a.removeEventListener('waiting', onWaiting)
-      a.removeEventListener('canplay', onCanPlay)
-      a.removeEventListener('playing', onPlaying)
-      a.removeEventListener('error', onError)
-      a.removeEventListener('ended', onEnded)
-      a.removeEventListener('loadedmetadata', onLoadedMetadata)
-      a.removeEventListener('timeupdate', onTimeUpdate)
-      // The provider is going away (signed out): stop the audio for good.
-      a.pause()
-      a.removeAttribute('src')
-      a.load()
+      if (frame) cancelAnimationFrame(frame)
+      if (ro) ro.disconnect()
+      window.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+      panel.style.transform = ''
+      panel.style.willChange = ''
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [expanded])
+
+  /* Position/duration mirror: the IFrame API has no timeupdate event. */
+  useEffect(() => {
+    if (!hasVideo) return undefined
+    const id = setInterval(() => {
+      const yt = ytRef.current
+      if (!yt) return
+      const total = yt.getDuration()
+      if (total > 0 && total !== durationRef.current) {
+        durationRef.current = total
+        setDuration(total)
+      }
+      setTime(yt.getTime())
+    }, TICK_MS)
+    return () => clearInterval(id)
+  }, [hasVideo])
+
+  /* The panel and its player outlive every route: tear them down for good. */
+  useEffect(
+    () => () => {
+      clearTimeout(playTimerRef.current)
+      ytRef.current?.destroy()
+      ytRef.current = null
+    },
+    []
+  )
 
   const nextRef = useRef(next)
   nextRef.current = next
-
-  useEffect(() => {
-    const a = audioRef.current
-    if (a) a.volume = volume
-  }, [volume])
 
   /* ----------------------- signed out -> silence ----------------------- */
   // The player sits above the routes, so it outlives a logout - watch the
   // session and stop everything the moment it goes away (logout or expiry).
   useEffect(() => {
     if (session) return
-    const a = audioRef.current
-    if (!a) return
-    errorHandledRef.current = true // dropping the src is not a playback failure
-    a.pause()
-    a.removeAttribute('src')
-    try {
-      a.load() // abort whatever was still streaming
-    } catch {
-      /* very old browsers */
-    }
+    errorHandledRef.current = true // stopping is not a playback failure
+    pendingRef.current = null
+    ytRef.current?.stop()
     queueRef.current = []
     setQueue([])
     indexRef.current = -1
@@ -374,8 +915,18 @@ export function PlayerProvider({ children }) {
     setLoading(false)
     setTime(0)
     setDuration(0)
+    setHasVideo(false)
+    setExpanded(false)
+    upNextRef.current = []
+    setUpNext([])
+    setPlaybackMode('recommendations')
+    setActivePlaylist(null)
+    seenRef.current = []
+    setSeenIds([])
+    recordedRef.current = false
+    clearTimeout(playTimerRef.current)
     failStreakRef.current = 0
-    loggedRef.current = false
+    legacyWarnedRef.current = false
   }, [session])
 
   /* Space toggles playback (unless typing, or a dialog owns the keyboard). */
@@ -404,18 +955,36 @@ export function PlayerProvider({ children }) {
       loading,
       time,
       duration,
-      volume,
       repeat,
+      shuffle,
+      playbackMode,
+      activePlaylist,
+      hasVideo,
       hasTrack: Boolean(current),
+      expanded,
+      openPlayer,
+      closePlayer,
+      /* The single panel is rendered by Layout and stays mounted for the whole
+         session. Sharing the refs lets the ONE YT.Player live in that node. */
+      hostRef,
+      panelRef,
       playQueue,
+      playAt,
+      enqueueAndPlay,
+      setRecommendationQueue,
+      refillRecommendations,
+      clearRecommendationError,
+      upNext,
+      recommendationError,
+      seenIds,
       toggle,
       next,
       prev,
       seekPercent,
-      setVolume,
       cycleRepeat,
+      toggleShuffle,
     }),
-    [queue, index, current, playing, loading, time, duration, volume, repeat, playQueue, toggle, next, prev, seekPercent, setVolume, cycleRepeat]
+    [queue, index, current, playing, loading, time, duration, repeat, shuffle, playbackMode, activePlaylist, hasVideo, expanded, upNext, recommendationError, seenIds, openPlayer, closePlayer, playQueue, playAt, enqueueAndPlay, setRecommendationQueue, refillRecommendations, clearRecommendationError, toggle, next, prev, seekPercent, cycleRepeat, toggleShuffle]
   )
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from './Icons.jsx'
 import CoverArt from './CoverArt.jsx'
-import { audiusRequest } from '../lib/api.js'
+import { youtubeRequest } from '../lib/api.js'
 import { usePlayer } from '../context/PlayerContext.jsx'
 
 const DEBOUNCE_MS = 300
@@ -70,7 +70,7 @@ export default function SearchBox({
 
     setBusy(true)
     const timer = setTimeout(() => {
-      audiusRequest({ action: 'search', q: term, limit: String(SUGGEST_LIMIT) })
+      youtubeRequest({ action: 'search', q: term, limit: String(SUGGEST_LIMIT) })
         .then((data) => {
           if (!alive || reqRef.current !== id) return // stale response
           /* The field was left or the search was submitted while we waited:

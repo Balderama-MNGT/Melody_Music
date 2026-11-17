@@ -7,7 +7,9 @@
     "dev": "vite",
     "dev:api": "node scripts/dev-api.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:api": "node scripts/test-api-protection.mjs",
+    "test:search": "node scripts/test-search.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

@@ -16,7 +16,7 @@ export default function TrackCard({ track, queue, index = 0 }) {
   const meta = [fmtDurationShort(track.duration), track.genre].filter(Boolean).join(' \u2022 ')
 
   return (
-    <div className={`song-card audius-item${isCurrent ? ' is-current' : ''}`} data-external={track.external_id}>
+    <div className={`song-card music-item${isCurrent ? ' is-current' : ''}`} data-external={track.external_id}>
       <button
         type="button"
         className="song-card-cover"

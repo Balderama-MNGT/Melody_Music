@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Icon, BrandMark } from './Icons.jsx'
 import Player from './Player.jsx'
+import ExpandedPlayer from './ExpandedPlayer.jsx'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePlayer } from '../context/PlayerContext.jsx'
@@ -27,7 +28,7 @@ const NAV_ITEMS = [
  */
 export default function Layout() {
   const { session, profile, signOut } = useAuth()
-  const { playing } = usePlayer()
+  const { playing, expanded, hasVideo, hostRef, panelRef } = usePlayer()
   const navigate = useNavigate()
   const location = useLocation()
   const [confirmingLogout, setConfirmingLogout] = useState(false)
@@ -82,7 +83,8 @@ export default function Layout() {
   }
 
   return (
-    <div className="app">
+    <>
+      <div className="app">
       <a className="skip-link" href="#main">
         Skip to main content
       </a>
@@ -152,6 +154,16 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+
+        {/* Required notices for YouTube API Services clients. */}
+        <div className="sidebar-legal">
+          <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">
+            YouTube Terms of Service
+          </a>
+          <Link to="/privacy" onClick={closeNav}>
+            Privacy &amp; Terms
+          </Link>
+        </div>
       </aside>
 
       <main className="main" id="main">
@@ -174,6 +186,16 @@ export default function Layout() {
           onCancel={() => setConfirmingLogout(false)}
         />
       )}
-    </div>
+      </div>
+
+      {/* The ONE YouTube player, mounted for the whole session. It lives
+          outside .app so hiding the dashboard while expanded never hides the
+          iframe, and the expanded view owns the document's scroll height. */}
+      <div className="yt-panel" hidden={!hasVideo} ref={panelRef}>
+        <div className="yt-host" ref={hostRef} />
+      </div>
+
+      {expanded && <ExpandedPlayer />}
+    </>
   )
 }

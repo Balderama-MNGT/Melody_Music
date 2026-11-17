@@ -2,9 +2,10 @@ import { useRef, useState } from 'react'
 import { Icon } from './Icons.jsx'
 
 /**
- * Artwork with Audius mirror fallback (Audius docs: "Image Loading & Mirrors").
- * If a content node is down, the URL host is swapped for each mirror in turn
- * before falling back to a placeholder - mirrors are never stripped.
+ * Artwork with mirror fallback (kept from the Audius days: a track may carry
+ * extra mirror hosts, and if the first URL fails the host is swapped for each
+ * mirror in turn before falling back to a placeholder). YouTube thumbnails
+ * simply arrive as one URL, so `mirrors` is empty and the placeholder shows.
  *
  * className          - classes for the <img>           (e.g. "track-thumb")
  * placeholderClassName - classes when there is no image (e.g. "track-thumb placeholder-thumb")

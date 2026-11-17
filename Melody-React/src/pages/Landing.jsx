@@ -250,7 +250,13 @@ export default function Landing() {
             <BrandMark size={26} />
             <span className="brand-name">Melody</span>
           </Link>
-          <p className="footer-note">Made for the love of music.</p>
+          <p className="footer-note">
+            Made for the love of music.{' '}
+            <Link to="/privacy">Privacy &amp; Terms</Link>{' '}
+            <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">
+              YouTube Terms of Service
+            </a>
+          </p>
           <p className="footer-copy">&copy; {YEAR} Melody. All rights reserved.</p>
         </div>
       </footer>

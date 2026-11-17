@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { audiusRequest } from '../lib/api.js'
+import { youtubeRequest } from '../lib/api.js'
 import { usePlayer } from '../context/PlayerContext.jsx'
 import { publishSection, unpublishSection } from '../lib/sections.js'
 import TrackCard from './TrackCard.jsx'
@@ -9,8 +9,8 @@ import ArtistDialog, { Avatar } from './ArtistDialog.jsx'
 import { EmptyState, ErrorState, LoadingState, SkeletonRow } from './States.jsx'
 
 /**
- * One Audius section (trending / discover / search / artists) - the React
- * version of initTracks() + initArtists() in assets/js/audius.js.
+ * One music section (trending / discover / search / artists) backed by the
+ * YouTube Data API - the React version of initTracks() + initArtists().
  *
  * mode    - trending | discover | search | artists
  * query   - search text (search mode only)
@@ -25,8 +25,8 @@ import { EmptyState, ErrorState, LoadingState, SkeletonRow } from './States.jsx'
 const LABELS = {
   trending: 'Loading trending tracks…',
   discover: 'Digging up fresh picks…',
-  search: 'Searching Audius…',
-  artists: 'Finding artists on Audius…',
+  search: 'Searching YouTube…',
+  artists: 'Finding artists on YouTube…',
 }
 
 function toQueueItem(t) {
@@ -41,7 +41,7 @@ function toQueueItem(t) {
   }
 }
 
-export default function AudiusSection({ mode, query = '', limit, layout = 'grid', onStatus }) {
+export default function MusicSection({ mode, query = '', limit, layout = 'grid', onStatus }) {
   const { playQueue } = usePlayer()
   const [state, setState] = useState('loading') // loading | ready | error | empty | idle
   const [tracks, setTracks] = useState([])
@@ -82,7 +82,7 @@ export default function AudiusSection({ mode, query = '', limit, layout = 'grid'
         ? { action: 'search', q: query.trim(), limit: String(effectiveLimit) }
         : { action: mode, limit: String(effectiveLimit) }
 
-    audiusRequest(params)
+    youtubeRequest(params)
       .then((res) => {
         if (isArtists) {
           const list = res.artists || []
@@ -104,7 +104,7 @@ export default function AudiusSection({ mode, query = '', limit, layout = 'grid'
         applyState('ready')
       })
       .catch((err) => {
-        setError(err?.message || 'Melody could not load Audius tracks.')
+        setError(err?.message || 'Melody could not load YouTube tracks.')
         setDebug(err?.debug ?? null)
         applyState('error')
       })
@@ -139,8 +139,8 @@ export default function AudiusSection({ mode, query = '', limit, layout = 'grid'
     if (isSearch) {
       return (
         <EmptyState
-          title="No Audius results"
-          text={`Nothing on Audius matched \u201C${query}\u201D. Try different keywords.`}
+          title="No YouTube results"
+          text={`Nothing on YouTube matched \u201C${query}\u201D. Try different keywords.`}
         />
       )
     }
@@ -148,14 +148,14 @@ export default function AudiusSection({ mode, query = '', limit, layout = 'grid'
       return (
         <EmptyState
           title="No artists to show right now"
-          text="Audius did not return any artists. Please check back in a moment."
+          text="YouTube did not return any artists. Please check back in a moment."
         />
       )
     }
     return (
       <EmptyState
         title={mode === 'discover' ? 'Nothing new to discover right now' : 'No trending tracks right now'}
-        text="Audius did not return any tracks. Please check back in a moment."
+        text="YouTube did not return any tracks. Please check back in a moment."
       />
     )
   }

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Standalone YouTube IFrame Player test</title>
+<!--
+  Isolated diagnostic: official YouTube IFrame Player API ONLY.
+  No Supabase, no application code, no favourites/playlists/search.
+  Purpose: decide whether a playback failure lives in the video/network or in
+  the application's integration of the player.
+-->
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; color: #111; background: #fff; }
+  h1 { font-size: 18px; }
+  #player { width: 480px; height: 270px; min-width: 200px; min-height: 200px; background: #000; }
+  .row { margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button { padding: 8px 14px; font: inherit; cursor: pointer; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+         background: #f6f6f6; border: 1px solid #ddd; padding: 10px; max-width: 900px;
+         max-height: 320px; overflow: auto; }
+  .ok { color: #0a7a2f; } .bad { color: #c0272d; } .info { color: #333; }
+</style>
+</head>
+<body>
+<h1>Standalone YouTube IFrame Player test</h1>
+<p>Official API only. Independent of Supabase, the app database, and the app's components.</p>
+
+<div id="player"></div>
+
+<div class="row">
+  <button id="btnPlay">Play</button>
+  <button id="btnPause">Pause</button>
+  <button id="btnReload">Load this video again</button>
+  <span id="state">state: -</span>
+</div>
+<div class="row">
+  <label>Video id <input id="vid" size="14" value="" /></label>
+  <button id="btnLoad">Load id</button>
+  <span id="time">0:00 / 0:00</span>
+</div>
+
+<div id="log"></div>
+
+<script>
+  var STATES = { '-1': 'UNSTARTED', '0': 'ENDED', '1': 'PLAYING', '2': 'PAUSED', '3': 'BUFFERING', '5': 'CUED' };
+  var ERROR_CODES = {
+    2: 'Invalid video ID or parameter',
+    5: 'HTML5 player playback error',
+    100: 'Video unavailable or removed',
+    101: 'Video embedding prohibited by owner',
+    150: 'Video embedding prohibited by owner',
+    153: 'Missing HTTP Referer or API client identification'
+  };
+  var started = Date.now();
+  var player = null;
+  var ready = false;
+  var lastError = null;
+  var playedOk = false;
+
+  function log(msg, cls) {
+    var el = document.getElementById('log');
+    var line = document.createElement('div');
+    line.className = cls || 'info';
+    line.textContent = '+' + String((Date.now() - started) / 1000).padStart(6) + 's  ' + msg;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  window.onerror = function (m, s, l, c, e) { log('JS ERROR: ' + m + ' @' + l + ':' + c, 'bad'); };
+  window.addEventListener('unhandledrejection', function (ev) {
+    log('UNHANDLED REJECTION: ' + (ev.reason && ev.reason.message ? ev.reason.message : ev.reason), 'bad');
+  });
+
+  function tick() {
+    if (!player || !ready) return;
+    try {
+      var t = player.getCurrentTime() || 0;
+      var d = player.getDuration() || 0;
+      var f = function (s) { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+      document.getElementById('time').textContent = f(t) + ' / ' + f(d);
+      if (t > 0.5) playedOk = true;
+    } catch (e) { log('getCurrentTime threw: ' + e.message, 'bad'); }
+  }
+  setInterval(tick, 500);
+
+  /* Modes reproduce the APPLICATION's exact call pattern so the two can be
+     compared without any application code:
+       ctor-id     - videoId passed to the constructor (default)
+       deferred    - no videoId in the constructor; loadVideoById() only after
+                     onReady (this is what the app does on the first track)
+       deferred2   - no videoId; onReady loads id A, then id B 1.4s later
+                     (this is what the app does when switching tracks)      */
+  function makePlayer(videoId) {
+    var mode = params.get('mode') || 'ctor-id';
+    /* Build options with the key OMITTED entirely when not used - passing
+       `videoId: undefined` as an explicit key is not the same as the app,
+       which never includes the key at all. */
+    var opts = {
+      width: '480',
+      height: '270',
+      playerVars: {
+        enablejsapi: 1,
+        controls: 1,
+        rel: 0,
+        playsinline: 1,
+        origin: window.location.origin
+      },
+      events: {
+        onReady: function (e) {
+          ready = true;
+          log('onReady - player is ready, current id=' + safeId(), 'ok');
+          document.getElementById('state').textContent = 'state: ready';
+          if (mode === 'deferred') {
+            log('onReady -> loadVideoById(' + videoId + ')   [app pattern: no ctor id]');
+            e.target.loadVideoById(videoId);
+          } else if (mode === 'deferred2') {
+            var other = params.get('v2') || '2ljKgfeDi-c';
+            log('onReady -> loadVideoById(' + videoId + ')   [app pattern: no ctor id]');
+            e.target.loadVideoById(videoId);
+            setTimeout(function () {
+              log('t+1.4s -> loadVideoById(' + other + ')   [app pattern: track switch]');
+              e.target.loadVideoById(other);
+            }, 1400);
+          } else {
+            e.target.playVideo();
+          }
+        },
+        onStateChange: function (e) {
+          document.getElementById('state').textContent = 'state: ' + STATES[String(e.data)] + ' (' + e.data + ')';
+          log('onStateChange ' + STATES[String(e.data)] + ' (' + e.data + ') id=' + safeId());
+          if (e.data === 1) log('PLAYBACK STARTED - currentTime=' + safeTime(), 'ok');
+        },
+        onPlaybackQualityChange: function (e) { log('onPlaybackQualityChange ' + e.data); },
+        onError: function (e) {
+          lastError = e.data;
+          log('onError code=' + e.data + ' (' + (ERROR_CODES[e.data] || 'unknown') + ') id=' + safeId(), 'bad');
+        }
+      }
+    };
+    if (mode === 'ctor-id') opts.videoId = videoId;
+    log('mode=' + mode + ' new YT.Player on #player, ctor videoId=' + (opts.videoId || '(key omitted)'));
+    try {
+      player = new YT.Player('player', opts);
+    } catch (err) {
+      log('YT.Player CONSTRUCTOR THREW: ' + err.message, 'bad');
+    }
+  }
+
+  function safeId() { try { var d = player.getVideoData(); return d && d.video_id ? d.video_id : '(none)'; } catch (e) { return '(player not answerable)'; } }
+  function safeTime() { try { return player.getCurrentTime(); } catch (e) { return '?'; } }
+
+  function loadId(id) {
+    log('loadVideoById(' + id + ')');
+    if (!player || !ready) { log('player not ready - cannot load', 'bad'); return; }
+    try { player.loadVideoById(id); } catch (e) { log('loadVideoById threw: ' + e.message, 'bad'); }
+  }
+
+  document.getElementById('btnPlay').onclick = function () { log('playVideo()'); try { player.playVideo(); } catch (e) { log('play threw ' + e.message, 'bad'); } };
+  document.getElementById('btnPause').onclick = function () { log('pauseVideo()'); try { player.pauseVideo(); } catch (e) { log('pause threw ' + e.message, 'bad'); } };
+  document.getElementById('btnReload').onclick = function () { loadId(document.getElementById('vid').value.trim()); };
+  document.getElementById('btnLoad').onclick = function () { loadId(document.getElementById('vid').value.trim()); };
+
+  /* ------------------------------ bootstrap ------------------------------ */
+  var params = new URLSearchParams(location.search);
+  var initialId = params.get('v') || 'Z2zrSpJmI_8';
+  document.getElementById('vid').value = initialId;
+
+  log('origin=' + location.origin + ' initial videoId=' + initialId);
+  log('navigator.userAgent=' + navigator.userAgent);
+
+  var s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  s.async = true;
+  s.onerror = function () { log('FAILED to load https://www.youtube.com/iframe_api', 'bad'); };
+  document.head.appendChild(s);
+
+  window.onYouTubeIframeAPIReady = function () {
+    log('onYouTubeIframeAPIReady - API script loaded', 'ok');
+    makePlayer(initialId);
+  };
+
+  /* expose a tiny status object for automated inspection */
+  window.__ytTest = {
+    state: function () {
+      return {
+        apiLoaded: !!(window.YT && window.YT.Player),
+        playerCreated: !!player,
+        ready: ready,
+        videoId: safeId(),
+        currentTime: (function () { try { return player.getCurrentTime(); } catch (e) { return null; } })(),
+        duration: (function () { try { return player.getDuration(); } catch (e) { return null; } })(),
+        playerState: (function () { try { return player.getPlayerState(); } catch (e) { return null; } })(),
+        error: lastError,
+        everPlayed: playedOk,
+        iframePresent: !!document.querySelector('#player iframe')
+      };
+    },
+    load: loadId,
+    play: function () { try { player.playVideo(); } catch (e) {} },
+    pause: function () { try { player.pauseVideo(); } catch (e) {} }
+  };
+</script>
+</body>
+</html>

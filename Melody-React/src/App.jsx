@@ -15,12 +15,13 @@ import PlaylistDetail from './pages/PlaylistDetail.jsx'
 import Favorites from './pages/Favorites.jsx'
 import Albums from './pages/Albums.jsx'
 import History from './pages/History.jsx'
+import Privacy from './pages/Privacy.jsx'
 
 /** Shown while the stored session is being restored. */
 function Booting() {
   return (
     <div className="page">
-      <div className="audius-state" role="status">
+      <div className="music-state" role="status">
         <span className="spinner" aria-hidden="true" />
         <span>Loading Melody…</span>
       </div>
@@ -91,6 +92,7 @@ export default function App() {
                 <Route path="history" element={<History />} />
               </Route>
 
+              <Route path="/privacy" element={<Privacy />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </PlayerProvider>

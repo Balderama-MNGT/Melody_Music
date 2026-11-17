@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react'
 import { Icon } from './Icons.jsx'
 
 /**
- * Horizontally scrolling strip with Previous / Next arrows - the home rows'
- * scroll-row from assets/js/audius.js (enhanceRow).
- * The grid itself becomes the scroll-strip, so the existing stylesheet applies.
+ * Horizontally scrolling strip with Previous / Next arrows - the old
+ * enhanceRow() behaviour. The grid itself becomes the scroll-strip, so the
+ * existing stylesheet applies.
  */
 export default function ScrollRow({ children, gridClassName = 'song-grid' }) {
   const stripRef = useRef(null)

@@ -97,6 +97,15 @@ const PATHS = {
       <path d="M10.9 10.4 12.7 8.6 12.7 15.4" />
     </>
   ),
+  shuffle: (
+    <>
+      <polyline points="16 3 21 3 21 8" />
+      <line x1="4" x2="21" y1="20" y2="3" />
+      <polyline points="21 16 21 21 16 21" />
+      <line x1="15" x2="21" y1="15" y2="21" />
+      <line x1="4" x2="9" y1="4" y2="9" />
+    </>
+  ),
   'volume-2': (
     <>
       <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
@@ -187,6 +196,7 @@ const PATHS = {
     </>
   ),
   'chevron-down': <path d="m6 9 6 6 6-6" />,
+  'chevron-up': <path d="m6 15 6-6 6 6" />,
 
   /* password visibility toggles (auth forms) */
   eye: (

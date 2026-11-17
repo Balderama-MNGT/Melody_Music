@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
 import { fetchLibraryBundle } from '../lib/db.js'
+import { providerSuffix } from '../lib/api.js'
 import { plural } from '../lib/format.js'
 
 /** "Oct 24, 14:05" - the timestamp style of the PHP library rows. */
@@ -47,6 +48,20 @@ export default function Library() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    const refresh = () => {
+      fetchLibraryBundle()
+        .then((bundle) => {
+          setTracks(bundle.tracks)
+          setRecent(bundle.recent)
+          setPlays(bundle.plays)
+        })
+        .catch(() => {})
+    }
+    window.addEventListener('melody:plays-changed', refresh)
+    return () => window.removeEventListener('melody:plays-changed', refresh)
+  }, [])
 
   const q = query.trim().toLowerCase()
   const filtered = q
@@ -111,7 +126,7 @@ export default function Library() {
                     /* phones drop the right-hand date column, so it is repeated
                        inside the artist line where it can wrap instead */
                     artistExtra={<span className="track-when"> &bull; {shortWhen(t.played_at)}</span>}
-                    suffix=" • Audius"
+                    suffix={providerSuffix(t.external_id)}
                     className="when-row"
                   />
                 ))}
@@ -147,7 +162,7 @@ export default function Library() {
                     queue={filtered}
                     index={i}
                     meta={plural(plays.get(t.external_id) || 0, 'play', 'plays')}
-                    suffix=" • Audius"
+                    suffix={providerSuffix(t.external_id)}
                   />
                 ))}
               </ul>

@@ -3,6 +3,7 @@ import { Icon } from '../components/Icons.jsx'
 import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState, ErrorState, LoadingState } from '../components/States.jsx'
 import { fetchFavoriteTracks } from '../lib/db.js'
+import { providerSuffix } from '../lib/api.js'
 
 /** Favorites - pages/favorites.php: every track you tapped the heart on. */
 export default function Favorites() {
@@ -47,7 +48,7 @@ export default function Favorites() {
         ) : (
           <ul className="track-list">
             {tracks.map((t, i) => (
-              <TrackRow key={t.external_id} track={t} queue={tracks} index={i} suffix=" • Audius" />
+              <TrackRow key={t.external_id} track={t} queue={tracks} index={i} suffix={providerSuffix(t.external_id)} />
             ))}
           </ul>
         ))}

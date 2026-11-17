@@ -1,10 +1,11 @@
 /**
- * Local development server for the /api functions (port 3100).
+ * Local development helper (port 3100): a tiny server that answers
+ * GET /api/health so the dev proxy and health checks have something to hit.
  *
- * Vercel runs api/*.js as serverless functions; locally `npm run dev:api`
- * runs the very same handlers behind a tiny adapter, and vite.config.js
- * proxies /api to it. Credentials are read from the .env file at the project
- * root (never committed - see .env.example).
+ * Since the Audius migration the music search talks to YouTube directly from
+ * the browser (see src/lib/api.js), so no /api music routes remain and the
+ * app itself never calls this server. Credentials are read from the .env file
+ * at the project root (never committed - see .env.example).
  *
  *   npm run dev        -> Vite on 5173 (proxies /api here)
  *   npm run dev:api    -> this file on 3100
@@ -13,9 +14,6 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-
-import audiusHandler from '../api/audius.js'
-import streamHandler from '../api/stream.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.API_PORT || 3100)
@@ -45,45 +43,6 @@ async function loadEnv() {
   }
 }
 
-/* --------------------------- Vercel-style adapter ------------------------ */
-
-function adapt(req, res, query) {
-  const outgoing = {
-    method: req.method,
-    headers: req.headers,
-    query,
-    setHeader: (name, value) => res.setHeader(name, value),
-    status(code) {
-      res.statusCode = code
-      return outgoing
-    },
-    json(body) {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      res.end(JSON.stringify(body))
-      return outgoing
-    },
-    end(data) {
-      res.end(data)
-      return outgoing
-    },
-  }
-  return outgoing
-}
-
-async function run(handler, req, res, query) {
-  const vres = adapt(req, res, query) // one object: readable like req, writable like res
-  try {
-    await handler(vres, vres)
-  } catch (err) {
-    if (!res.headersSent) {
-      res.statusCode = 500
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-      res.end('Something went wrong on the server.')
-    }
-    console.error('[dev-api]', err)
-  }
-}
-
 /* -------------------------------- server --------------------------------- */
 
 async function main() {
@@ -92,22 +51,28 @@ async function main() {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`)
 
-    if (url.pathname === '/api/audius') {
-      const query = Object.fromEntries(url.searchParams.entries())
-      await run(audiusHandler, req, res, query)
-      return
-    }
-
-    if (url.pathname === '/api/stream') {
-      const query = Object.fromEntries(url.searchParams.entries())
-      await run(streamHandler, req, res, query)
-      return
-    }
-
     if (url.pathname === '/api/health') {
       res.statusCode = 200
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
       res.end(JSON.stringify({ ok: true }))
+      return
+    }
+
+    if (url.pathname === '/api/music') {
+      const { handleMusic } = await import('../api/_lib/handler.js')
+      return handleMusic(req, res)
+    }
+
+    if (url.pathname === '/api/plays') {
+      const { handlePlays } = await import('../api/_lib/plays.js')
+      return handlePlays(req, res)
+    }
+
+    if (url.pathname === '/api/metrics') {
+      const { metricsSnapshot } = await import('../api/_lib/store.js')
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      res.end(JSON.stringify({ ok: true, ...metricsSnapshot() }))
       return
     }
 
@@ -119,7 +84,7 @@ async function main() {
   server.listen(PORT, '127.0.0.1', () => {
     const supabase = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
     console.log(`[dev-api] listening on http://127.0.0.1:${PORT}`)
-    console.log(`[dev-api] Audius credentials: ${process.env.AUDIUS_BEARER_TOKEN || process.env.AUDIUS_API_KEY ? 'configured' : 'none (keyless)'}`)
+    console.log(`[dev-api] YouTube Data API: ${process.env.YOUTUBE_API_KEY ? 'server-side key configured' : 'NO server key (set YOUTUBE_API_KEY in .env)'}`)
     console.log(`[dev-api] Supabase: ${supabase ? 'configured' : 'not configured (auth/DB will fail until .env is filled in)'}`)
   })
 }

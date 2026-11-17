@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icons.jsx'
-import AudiusSection from '../components/AudiusSection.jsx'
+import MusicSection from '../components/MusicSection.jsx'
 import SearchBox from '../components/SearchBox.jsx'
 import TrackRow from '../components/TrackRow.jsx'
 import { EmptyState } from '../components/States.jsx'
@@ -9,7 +9,7 @@ import { fetchLibraryTracks } from '../lib/db.js'
 
 /**
  * Search - pages/search.php: the app's one search field sits directly under
- * the page title, the suggestions hang off it, Audius results follow, then
+ * the page title, the suggestions hang off it, YouTube results follow, then
  * your own library.
  *
  * The box owns the query: typing only feeds the suggestions, Enter or the
@@ -31,14 +31,14 @@ export default function Search() {
 
   const [library, setLibrary] = useState(null) // null = not loaded yet
 
-  /* Audius answers for this page through AudiusSection, which reports the
+  /* YouTube answers for this page through MusicSection, which reports the
      state it is in together with the query it belongs to - so a new ?q= is
      never read as the previous query's outcome. */
-  const [audiusReport, setAudiusReport] = useState({ q: null, state: 'loading' })
-  const reportAudius = useCallback((rq, state) => {
-    setAudiusReport((prev) => (prev.q === rq && prev.state === state ? prev : { q: rq, state }))
+  const [sectionReport, setSectionReport] = useState({ q: null, state: 'loading' })
+  const reportSection = useCallback((rq, state) => {
+    setSectionReport((prev) => (prev.q === rq && prev.state === state ? prev : { q: rq, state }))
   }, [])
-  const audiusState = audiusReport.q === q ? audiusReport.state : 'loading'
+  const sectionState = sectionReport.q === q ? sectionReport.state : 'loading'
 
   useEffect(() => {
     let alive = true
@@ -60,10 +60,10 @@ export default function Search() {
       })
     : []
 
-  /* Audius came back empty and the library has nothing either: one clear
+  /* YouTube came back empty and the library has nothing either: one clear
      message instead of two stacked "nothing here" boxes. */
   const noResults =
-    q !== '' && audiusState === 'empty' && library !== null && hits.length === 0
+    q !== '' && sectionState === 'empty' && library !== null && hits.length === 0
 
   function submit(value) {
     const next = String(value || '').trim()
@@ -102,7 +102,7 @@ export default function Search() {
         <EmptyState
           icon={<Icon name="search" size={22} />}
           title="Start searching"
-          text="Type a song, artist, album or keyword in the search bar above to search Audius and your own library."
+          text="Type a song, artist, album or keyword in the search bar above to search YouTube and your own library."
         />
       ) : noResults ? (
         <EmptyState
@@ -113,10 +113,10 @@ export default function Search() {
       ) : (
         <>
           <h2 className="section-title">
-            <Icon name="music" size={18} /> <span>On Audius</span>
+            <Icon name="music" size={18} /> <span>On YouTube</span>
           </h2>
-          <div className="audius-section">
-            <AudiusSection mode="search" query={q} limit={20} onStatus={reportAudius} />
+          <div className="music-section">
+            <MusicSection mode="search" query={q} limit={20} onStatus={reportSection} />
           </div>
 
           <h2 className="section-title">
