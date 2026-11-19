@@ -338,10 +338,17 @@ export async function artistVideos(channelId) {
   return (json.items || []).filter((i) => i.id && i.id.videoId)
 }
 
-export async function chart(pageToken = '') {
+export async function chart(pageToken = '', regionCode = '') {
   const json = await ytGet(
     'videos',
-    { part: 'snippet,contentDetails,status', chart: 'mostPopular', videoCategoryId: '10', maxResults: '50', pageToken },
+    {
+      part: 'snippet,contentDetails,status',
+      chart: 'mostPopular',
+      videoCategoryId: '10',
+      maxResults: '50',
+      pageToken,
+      regionCode,
+    },
     1
   )
   return { items: json.items || [], nextPageToken: String(json.nextPageToken || '') }

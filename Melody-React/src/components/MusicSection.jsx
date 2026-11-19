@@ -41,7 +41,7 @@ function toQueueItem(t) {
   }
 }
 
-export default function MusicSection({ mode, query = '', limit, layout = 'grid', onStatus }) {
+export default function MusicSection({ mode, query = '', limit, layout = 'grid', onStatus, exclude = '' }) {
   const { playQueue } = usePlayer()
   const [state, setState] = useState('loading') // loading | ready | error | empty | idle
   const [tracks, setTracks] = useState([])
@@ -80,7 +80,11 @@ export default function MusicSection({ mode, query = '', limit, layout = 'grid',
       ? { action: 'artists', limit: String(effectiveLimit) }
       : isSearch
         ? { action: 'search', q: query.trim(), limit: String(effectiveLimit) }
-        : { action: mode, limit: String(effectiveLimit) }
+        : {
+            action: mode,
+            limit: String(effectiveLimit),
+            ...(mode === 'discover' && exclude ? { exclude } : {}),
+          }
 
     youtubeRequest(params)
       .then((res) => {
@@ -108,7 +112,7 @@ export default function MusicSection({ mode, query = '', limit, layout = 'grid',
         setDebug(err?.debug ?? null)
         applyState('error')
       })
-  }, [mode, query, effectiveLimit, isArtists, isSearch, applyState])
+  }, [mode, query, effectiveLimit, isArtists, isSearch, exclude, applyState])
 
   useEffect(() => {
     load()

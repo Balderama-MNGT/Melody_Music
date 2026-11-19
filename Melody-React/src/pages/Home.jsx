@@ -147,6 +147,19 @@ export default function Home() {
     else playQueue(recent, 0)
   }
 
+  /* Familiar songs go to the back of Discover without an extra API call. */
+  const discoverExclude = [
+    ...new Set(
+      [
+        ...recent.map((t) => t.external_id),
+        ...favorites.map((t) => t.external_id),
+        ...sharedPlaylists.flatMap((p) => p.trackIds || []),
+      ].filter(Boolean)
+    ),
+  ]
+    .slice(0, 60)
+    .join(',')
+
   const quick = [
     {
       href: '/app/favorites',
@@ -315,7 +328,7 @@ export default function Home() {
             </button>
           </h2>
           <div className="music-section">
-            <MusicSection mode="discover" limit={10} layout="row" />
+            <MusicSection mode="discover" limit={10} layout="row" exclude={discoverExclude} />
           </div>
 
           {/* Artists (YouTube) */}

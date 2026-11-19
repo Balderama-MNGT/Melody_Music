@@ -123,6 +123,30 @@ async function applyLimits(action, userId) {
   return worst
 }
 
+/** Keep a chart varied without reshuffling its real popularity order. */
+function diversifyChart(tracks, perArtist = 2) {
+  const counts = new Map()
+  return tracks.filter((t) => {
+    const artist = t.artist_id || String(t.artist || '').toLowerCase()
+    const used = counts.get(artist) || 0
+    if (used >= perArtist) return false
+    counts.set(artist, used + 1)
+    return true
+  })
+}
+
+/** Rotate through genuine mostPopular regions so Discover differs from the
+    Home-region Trending chart on every cache refresh. */
+async function nextDiscoverRegion() {
+  const regions = config.discoverRegions.length ? config.discoverRegions : ['US']
+  const stored = await cacheGet('chart:discover:region-index')
+  /* Start at the second region so the very first Discover fetch cannot be the
+     same Home-region chart that Trending already shows. */
+  const index = stored == null ? 1 % regions.length : (Number(stored) || 0) % regions.length
+  await cacheSet('chart:discover:region-index', index + 1, config.cache.chartTtl)
+  return regions[index]
+}
+
 async function runAction(action, params) {
   const limit = Math.max(1, Math.min(50, parseInt(params.limit, 10) || 24))
 
@@ -230,28 +254,54 @@ async function runAction(action, params) {
   }
 
   if (action === 'trending' || action === 'discover') {
-    const key = `chart:${action === 'trending' ? 'top' : 'next'}`
+    const isTrending = action === 'trending'
+    /* Trending = YouTube's Home-region mostPopular chart. Discover = the SAME
+       genuine chart for a rotating region, never the same page as Trending. */
+    const region = isTrending ? '' : await nextDiscoverRegion()
+    const key = isTrending ? 'chart:top' : `chart:next:${region}`
     let tracks = await cacheGet(key)
     if (!tracks) {
       tracks = await dedupe(key, async () => {
-        let data = await chart(action === 'trending' ? '' : (await cacheGet('chart:token')) || '')
-        if (action === 'discover' && !data.items.length) data = await chart('')
-        const normalized = normalizeVideos(data.items)
+        const again = await cacheGet(key)
+        if (again) return again
+        const data = await chart('', region)
+        const normalized = diversifyChart(normalizeVideos(data.items))
         await cacheSet(
           key,
           normalized,
           normalized.length ? config.cache.chartTtl : config.cache.emptySearchTtl
         )
-        if (data.nextPageToken) await cacheSet('chart:token', data.nextPageToken, config.cache.chartTtl)
+        if (isTrending) {
+          await cacheSet('chart:top:ids', normalized.map((t) => t.external_id), config.cache.chartTtl)
+        }
         return normalized
       })
     }
-    if (action === 'discover' && tracks.length) {
-      const head = new Set((await cacheGet('chart:top') || []).map((t) => t.external_id))
-      const rest = tracks.filter((t) => !head.has(t.external_id))
-      if (rest.length) tracks = rest
+
+    if (isTrending) {
+      return { ok: true, count: Math.min(tracks.length, limit), tracks: tracks.slice(0, limit) }
     }
-    return { ok: true, count: Math.min(tracks.length, limit), tracks: tracks.slice(0, limit) }
+
+    /* Cross-section dedupe by stable video ID. Familiar tracks from the
+       listener's own library go last, without another API call. */
+    let trendingIds = await cacheGet('chart:top:ids')
+    if (!Array.isArray(trendingIds) || !trendingIds.length) {
+      trendingIds = ((await cacheGet('chart:top')) || []).map((t) => t.external_id)
+    }
+    const trending = new Set(trendingIds)
+    const familiar = new Set(
+      String(params.exclude || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+    let discover = tracks.filter((t) => !trending.has(t.external_id))
+    /* Only fall back to the shared pool when there are too few unique songs. */
+    if (discover.length < Math.min(limit, 4)) discover = tracks
+    discover.sort(
+      (a, b) => Number(familiar.has(a.external_id)) - Number(familiar.has(b.external_id))
+    )
+    return { ok: true, count: Math.min(discover.length, limit), tracks: discover.slice(0, limit) }
   }
 
   if (action === 'artists') {
@@ -339,7 +389,7 @@ export async function handleMusic(req, res) {
     }
 
     const params = {}
-    for (const key of ['q', 'id', 'limit', 'title', 'artist', 'genre']) {
+    for (const key of ['q', 'id', 'limit', 'title', 'artist', 'genre', 'exclude']) {
       const value = url.searchParams.get(key)
       if (value !== null) params[key] = value
     }

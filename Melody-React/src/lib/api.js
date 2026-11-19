@@ -359,7 +359,7 @@ function rememberChannels(tracks) {
  * Trending / Discover are backend chart actions (cheap videos.list). The
  * client cache is a second layer in front of the backend cache.
  */
-async function chartPage(page) {
+async function chartPage(page, exclude = '') {
   const action = page <= 0 ? 'trending' : 'discover'
   const key = `chart:${action}`
   const cached = cacheGet(key)
@@ -368,7 +368,7 @@ async function chartPage(page) {
   return dedupe(key, async () => {
     const again = cacheGet(key)
     if (again) return again
-    const data = await backendGet(action, { limit: 50 })
+    const data = await backendGet(action, { limit: 50, ...(action === 'discover' && exclude ? { exclude } : {}) })
     const tracks = Array.isArray(data.tracks) ? data.tracks : []
     rememberChannels(tracks)
     cacheSet(key, tracks, tracks.length ? TTL.chart : TTL.weak)
@@ -482,23 +482,22 @@ export async function youtubeRequest(params = {}) {
     let tracks = []
     let primaryError = null
     try {
-      tracks = await chartPage(1)
+      tracks = await chartPage(1, String(params.exclude || ''))
     } catch (err) {
       primaryError = err
     }
-    if (!tracks.length) {
-      /* No second page (or it failed): differ from Trending the way the old
-         discover row did - same pool, minus the top of the chart. */
-      let top = []
-      try {
-        top = await chartPage(0)
-      } catch (err) {
-        throw primaryError || err
-      }
-      const head = new Set(top.slice(0, limit).map((t) => t.external_id))
-      tracks = top.filter((t) => !head.has(t.external_id))
-      if (!tracks.length) tracks = top
+    /* Cross-section dedupe uses ALL trending IDs, not just the visible cards. */
+    let top = []
+    try {
+      top = await chartPage(0)
+    } catch (err) {
+      if (!tracks.length) throw primaryError || err
     }
+    const trendingIds = new Set(top.map((t) => t.external_id))
+    const unique = tracks.filter((t) => !trendingIds.has(t.external_id))
+    if (unique.length >= Math.min(limit, 4)) tracks = unique
+    else if (!tracks.length && top.length) tracks = top.slice() // catalog too small
+
     if (!tracks.length) {
       throw new YoutubeError('YouTube returned an empty chart right now. Please try again shortly.', 502)
     }

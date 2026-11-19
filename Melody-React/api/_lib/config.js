@@ -40,6 +40,13 @@ export const config = {
   ).trim(),
 
   allowedOrigins,
+  /* Discover uses YouTube's genuine mostPopular chart for a rotating region,
+     so it is a different popularity pool from the Home-region Trending chart
+     without spending a search.list call. */
+  discoverRegions: String(process.env.DISCOVER_REGIONS || 'US,GB,KR,JP,DE')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => /^[A-Z]{2}$/.test(s)),
 
   limits: {
     windowMs: num('RATE_LIMIT_WINDOW_MS', 60_000, 1_000, 3_600_000),
