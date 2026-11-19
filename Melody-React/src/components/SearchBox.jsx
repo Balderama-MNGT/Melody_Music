@@ -208,7 +208,7 @@ export default function SearchBox({
           id={inputId}
           name="q"
           className={`search-input${value ? ' has-clear' : ''}`}
-          placeholder="Search songs, artists, albums..."
+          placeholder="What do you want to listen to?"
           value={value}
           onChange={(e) => {
             submittedRef.current = false // typing again: suggestions allowed

@@ -1,4 +1,4 @@
-/* ============ Melody - style.css ============ */
+﻿/* ============ Melody - style.css ============ */
 
 :root {
     /* Brand palette */
@@ -13,6 +13,9 @@
     --muted: #777783;         /* muted text */
     --input-bg: #202027;      /* input background */
     --input-border: #34343E;  /* input border */
+    --border: #292932;        /* subtle borders */
+    --border-strong: #3a3a45; /* stronger borders / sliders */
+    --on-accent: #06210F;     /* text on the green accent */
     --danger: #FF5C5C;        /* error color */
     --success: #1ED760;       /* success color */
     --radius: 12px;
@@ -24,6 +27,27 @@
     --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
             Helvetica, Arial, sans-serif;
 }
+
+/* Light theme: the same palette keys, bright values. The green accent is
+   preserved so both themes still look like Melody. */
+:root[data-theme="light"] {
+    --bg: #F5F6F8;
+    --bg-2: #FFFFFF;
+    --bg-3: #EEF0F4;
+    --hover: #E3E6EC;
+    --text: #121218;
+    --text-dim: #4A4C57;
+    --muted: #747783;
+    --input-bg: #FFFFFF;
+    --input-border: #C9CDD6;
+    --border: #D9DDE5;
+    --border-strong: #B9BEC9;
+    --on-accent: #FFFFFF;
+    --shadow: 0 10px 30px rgba(20, 25, 40, .14);
+}
+:root[data-theme="light"] .play-overlay { background: rgba(255, 255, 255, .55); }
+:root[data-theme="light"] .nav-backdrop,
+:root[data-theme="light"] .account-backdrop { background: rgba(20, 25, 40, .45); }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -52,7 +76,7 @@ body {
     left: 12px; top: -60px;
     z-index: 200;
     background: var(--accent);
-    color: #06210F;
+    color: var(--on-accent);
     font-weight: 700;
     padding: 10px 16px;
     border-radius: 8px;
@@ -83,66 +107,226 @@ img { max-width: 100%; }
     display: grid;
     grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
     grid-template-rows: auto 1fr;
-    min-height: 100vh;
+    min-height: 100dvh;
     padding-bottom: var(--player-h);
+    /* Own stacking context: the fixed YouTube panel is a sibling at z-index 120.
+       Overlays portalled to <body> can then be layered above it deliberately. */
+    position: relative;
+    z-index: 1;
 }
 
 .topbar {
     grid-column: 1 / -1;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     gap: 16px;
     min-width: 0;
     min-height: var(--topbar-h);
     padding: 12px 22px;
     background: var(--bg-2);
-    border-bottom: 1px solid #292932;
+    border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     z-index: 20;
 }
 
-/* Left of the header: the hamburger (phones only) and a search shortcut.
-   The actual search still happens on the Search page. */
-.topbar-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.topbar-search {
-    display: flex; align-items: center; gap: 8px; min-width: 0;
-    width: clamp(220px, 28vw, 420px); height: 38px; padding: 0 14px;
-    background: var(--bg-3); border: 1px solid var(--input-border);
-    border-radius: 999px; cursor: text;
-    transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
-}
-.topbar-search:hover { border-color: #3a3a45; background: var(--hover); }
-.topbar-search:focus-within {
-    border-color: var(--accent); background: var(--bg-2);
-    box-shadow: 0 0 0 3px rgba(30, 215, 96, .16);
-}
-.topbar-search-icon { display: inline-flex; color: var(--muted); flex-shrink: 0; }
-.topbar-search:focus-within .topbar-search-icon { color: var(--accent); }
-.topbar-search-input {
-    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
-    color: var(--text); font: inherit; font-size: 13.5px;
-}
-.topbar-search-input::placeholder { color: var(--muted); }
 .topbar-user { display: flex; align-items: center; gap: 12px; color: var(--text-dim); flex-shrink: 0; margin-left: auto; }
+
+/* Mobile shell pieces. Hidden here, enabled only below the mobile breakpoint. */
+.mobile-page-header, .mobile-bottom-nav { display: none; }
+.user-avatar {
+    width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%;
+    object-fit: cover; background: var(--bg-3);
+}
+.user-avatar-ph {
+    display: grid; place-items: center;
+    color: var(--on-accent); background: var(--accent); font-weight: 800; font-size: 16px;
+}
+
+/* ---------- Profile account menu ----------
+   Portalled to <body> so it escapes .app's stacking context and paints above
+   the fixed YouTube iframe. The iframe itself is never touched. */
+.account-avatar-button {
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%;
+    flex-shrink: 0; transition: transform .14s ease, box-shadow .14s ease;
+}
+.account-avatar-button:hover { transform: scale(1.06); box-shadow: 0 0 0 3px rgba(30, 215, 96, .25); }
+.account-avatar-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.account-backdrop {
+    position: fixed; inset: 0; z-index: 230;
+    background: transparent; opacity: 0;
+    transition: opacity .28s ease;
+}
+.account-backdrop.is-open { opacity: 1; }
+.account-dropdown, .account-drawer {
+    position: fixed; z-index: 240;
+    background: var(--bg-2); color: var(--text);
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.account-dropdown {
+    width: 284px; border-radius: 14px; padding: 6px;
+    animation: melody-dropdown-in .16s ease;
+}
+.account-drawer {
+    top: 0; left: 0; bottom: 0; width: min(320px, 88vw);
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 10px calc(16px + env(safe-area-inset-bottom, 0px));
+    border-radius: 0 18px 18px 0;
+    transform: translateX(-100%); opacity: .6;
+    transition: transform .3s cubic-bezier(.22, 1, .36, 1), opacity .28s ease;
+}
+.account-drawer.is-open { transform: translateX(0); opacity: 1; }
+.account-profile {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 10px 16px; border-bottom: 1px solid var(--border);
+}
+.account-avatar { width: 44px; height: 44px; font-size: 18px; }
+.account-profile-text { display: flex; flex-direction: column; min-width: 0; }
+.account-profile-text strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-profile-text > span { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.account-body {
+    display: flex; flex-direction: column; gap: 4px;
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 0;
+}
+.account-group { display: flex; flex-direction: column; gap: 2px; }
+.account-group + .account-group {
+    margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.account-group-label {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--muted); padding: 6px 12px;
+}
+.account-link {
+    display: flex; align-items: center; gap: 12px; min-height: 52px;
+    padding: 9px 12px; border-radius: 10px; color: var(--text-dim);
+    transition: background .15s ease, color .15s ease;
+}
+.account-link > svg:first-child { color: var(--muted); flex-shrink: 0; }
+.account-link:hover, .account-link:focus-visible { background: var(--hover); color: var(--text); }
+.account-link:hover > svg:first-child { color: var(--accent); }
+.account-link-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.account-link-text strong { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.account-link-text small { font-size: 11.5px; color: var(--muted); }
+.account-chevron { color: var(--muted); flex-shrink: 0; }
+.account-logout {
+    display: flex; align-items: center; gap: 12px; width: 100%; min-height: 46px;
+    padding: 10px 12px; border: 0; border-top: 1px solid var(--border);
+    background: none; color: var(--danger); font: inherit; font-size: 14px; font-weight: 700;
+    cursor: pointer; margin-top: auto; text-align: left;
+}
+.account-logout:hover { background: rgba(255, 92, 92, .1); }
+body.account-open .yt-panel { pointer-events: none; }
+
+@keyframes melody-dropdown-in {
+    from { opacity: 0; transform: translateY(-6px) scale(.98); }
+    to { opacity: 1; transform: none; }
+}
+@media (max-width: 767px) {
+    .account-backdrop { background: rgba(0, 0, 0, .62); }
+}
+
+/* ---------- Static information pages (Help / About) ---------- */
+.info-lead { color: var(--text-dim); font-size: 14px; margin: -6px 0 20px; }
+.info-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px; max-width: 960px;
+}
+.info-card {
+    border: 1px solid var(--border); border-radius: 14px;
+    background: var(--bg-2); padding: 20px;
+}
+.info-card h2 {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 15px; margin-bottom: 12px; color: var(--text);
+}
+.info-card h2 svg { color: var(--accent); }
+.info-card ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.info-card li {
+    font-size: 13px; line-height: 1.6; color: var(--text-dim);
+    padding-left: 14px; position: relative;
+}
+.info-card li::before {
+    content: ''; position: absolute; left: 0; top: 8px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+}
+.about-panel {
+    border: 1px solid var(--border); border-radius: 14px;
+    background: var(--bg-2); padding: 24px; max-width: 960px; margin-bottom: 16px;
+}
+.about-name { font-size: 22px; color: var(--text); }
+.about-panel p { font-size: 14px; color: var(--text-dim); margin-top: 8px; }
+.about-panel .about-meta { font-size: 12px; color: var(--muted); }
+.about-links { font-size: 13px; color: var(--muted); margin-top: 18px; }
+.about-links a { color: var(--accent); }
+
+/* ---------- Settings ---------- */
+.settings-grid { display: flex; flex-direction: column; gap: 26px; max-width: 720px; }
+.settings-heading { font-size: 15px; font-weight: 800; margin-bottom: 6px; color: var(--text); }
+.settings-note { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
+.settings-options { display: flex; flex-direction: column; gap: 8px; }
+.settings-option {
+    display: flex; align-items: center; gap: 14px; width: 100%;
+    min-height: 60px; padding: 12px 16px; text-align: left;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--bg-2); color: var(--text-dim);
+    font: inherit; cursor: pointer;
+    transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.settings-option:hover { background: var(--hover); color: var(--text); }
+.settings-option.selected { border-color: var(--accent); color: var(--text); }
+.settings-option > svg:first-child { color: var(--muted); flex-shrink: 0; }
+.settings-option.selected > svg:first-child { color: var(--accent); }
+.settings-option-text { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.settings-option-text strong { font-size: 14px; color: var(--text); }
+.settings-option-text small { font-size: 12px; color: var(--muted); }
+.settings-option-check { width: 20px; color: var(--accent); flex-shrink: 0; }
+.settings-chevron { color: var(--muted); flex-shrink: 0; }
+.settings-switch {
+    width: 40px; height: 22px; border-radius: 999px; flex-shrink: 0;
+    background: var(--border-strong); position: relative; transition: background .15s ease;
+}
+.settings-switch::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    transition: transform .15s ease;
+}
+.settings-switch.on { background: var(--accent); }
+.settings-switch.on::after { transform: translateX(18px); }
+.settings-pill {
+    font-size: 12px; font-weight: 700; color: var(--accent);
+    background: rgba(30, 215, 96, .12); padding: 5px 11px; border-radius: 999px;
+}
+.about-card {
+    border: 1px solid var(--border); border-radius: 14px;
+    background: var(--bg-2); padding: 20px;
+}
+.about-card strong { font-size: 17px; }
+.about-card p { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
+.about-card .about-meta { color: var(--muted); font-size: 12px; }
 .topbar-greeting { font-size: 14px; white-space: nowrap; }
 .topbar-greeting strong { color: var(--text); }
 .btn-logout { display: inline-flex; align-items: center; gap: 7px; }
 
 .sidebar {
     background: var(--bg-2);
-    padding: 20px 14px;
-    border-right: 1px solid #292932;
-    min-width: 0;                /* the nav strip scrolls instead of stretching the shell */
+    padding: 20px 14px 16px;
+    border-right: 1px solid var(--border);
+    min-width: 0;
     position: sticky;
-    top: var(--topbar-h);      /* sit below the sticky topbar, not under it */
+    top: var(--topbar-h);      /* directly below the header, never over it */
     align-self: start;
-    height: calc(100vh - var(--topbar-h) - var(--player-h));   /* fill the space down to the player bar */
-    overflow-y: auto;
+    /* Ends exactly where the fixed player begins - independent of the extra
+       padding the floating video adds to the main column. */
+    height: calc(100dvh - var(--topbar-h) - var(--player-h));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;          /* only the nav list scrolls, not the logo/footer */
     scrollbar-width: thin;
     scrollbar-color: var(--bg-3) transparent;
 }
+.sidebar-head { flex-shrink: 0; }
 
 .logo {
     display: flex;
@@ -159,15 +343,19 @@ img { max-width: 100%; }
 .logo small { font-size: 12px; color: var(--accent); font-weight: 700; margin-left: 2px; }
 
 .sidebar-legal {
-    display: flex; flex-direction: column; gap: 8px;
-    margin-top: 22px; padding: 16px 10px 0;
+    display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
+    margin-top: auto; padding: 16px 10px 0;
     border-top: 1px solid var(--input-border);
 }
 .sidebar-legal a { font-size: 11.5px; color: var(--muted); text-decoration: none; }
 .sidebar-legal a:hover { color: var(--accent); text-decoration: underline; }
 .legal-copy { max-width: 760px; display: flex; flex-direction: column; gap: 14px; line-height: 1.7; color: var(--text-dim); }
 .legal-copy a { color: var(--accent); }
-.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav {
+    display: flex; flex-direction: column; gap: 4px;
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: var(--bg-3) transparent;
+}
 .nav-link {
     display: flex;
     align-items: center;
@@ -185,9 +373,12 @@ img { max-width: 100%; }
     transition: background .15s ease, color .15s ease;
 }
 .nav-link .nav-icon { color: var(--muted); flex-shrink: 0; transition: color .15s ease; }
-.nav-link:hover { background: var(--hover); color: var(--text); }
+.nav-link:hover { background: var(--hover); color: var(--text); transform: translateX(2px); }
 .nav-link:hover .nav-icon { color: var(--text); }
-.nav-link.active { background: var(--bg-3); color: var(--text); }
+.nav-link.active {
+    background: var(--bg-3); color: var(--text);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
 .nav-link.active .nav-icon { color: var(--accent); }
 .nav-form { display: contents; }
 .nav-link-btn {
@@ -263,7 +454,7 @@ img { max-width: 100%; }
 .btn:hover { background: var(--hover); }
 .btn:active { transform: scale(.98); }
 .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
-.btn-primary { background: var(--accent); color: #06210F; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
 .btn-primary:hover { background: var(--accent-2); }
 .btn-outline { background: transparent; border-color: var(--input-border); color: var(--text); }
 .btn-outline:hover { background: var(--hover); border-color: var(--muted); }
@@ -291,11 +482,6 @@ img { max-width: 100%; }
 .btn-icon:hover { background: var(--hover); color: var(--text); }
 .btn-icon:active { transform: scale(.95); }
 .btn-icon:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(30, 215, 96, .35); }
-
-/* Mobile-only navigation: the hamburger, the drawer's close button and the
-   backdrop behind the drawer stay hidden until the mobile breakpoint (these
-   come after .btn-icon so they win the display fight against it). */
-.nav-toggle, .nav-close, .nav-backdrop { display: none; }
 
 /* Favorite toggle: outline + filled heart, one shown per state */
 .btn-fav { color: var(--muted); }
@@ -425,7 +611,7 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
     flex-direction: column;
     transition: background .15s ease, border-color .15s ease, transform .15s ease;
 }
-.song-card:hover { background: var(--bg-3); border-color: #292932; transform: translateY(-2px); }
+.song-card:hover { background: var(--bg-3); border-color: var(--border); transform: translateY(-2px); }
 .song-card-cover { position: relative; display: block; margin-bottom: 12px; }
 .song-card-cover img, .cover-placeholder {
     width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: cover;
@@ -443,7 +629,7 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
     display: grid; place-items: center;
     width: 46px; height: 46px; padding: 12px;
     border-radius: 50%;
-    background: var(--accent); color: #06210F;
+    background: var(--accent); color: var(--on-accent);
     fill: currentColor; stroke: none;
     transform: translateY(6px);
     transition: transform .15s ease, background .15s ease;
@@ -455,7 +641,7 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
     color: var(--text-dim); font-size: 13px; margin-top: 3px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* duration • genre line rendered by TrackCard under the artist */
+/* duration â€¢ genre line rendered by TrackCard under the artist */
 .song-card-meta {
     color: var(--muted); font-size: 12px; margin-top: 4px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -472,7 +658,7 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
     border: 1px solid transparent;
     transition: background .15s ease, border-color .15s ease;
 }
-.list-card:hover { background: var(--bg-3); border-color: #292932; }
+.list-card:hover { background: var(--bg-3); border-color: var(--border); }
 .list-card-icon {
     width: 44px; height: 44px; flex-shrink: 0;
     display: grid; place-items: center;
@@ -501,7 +687,7 @@ input[type="file"] { color: var(--text-dim); font-size: 13px; width: auto; }
     background: var(--bg-3); border-radius: 50%; color: var(--accent);
     transition: background .15s ease, color .15s ease, transform .1s ease;
 }
-.track-play:hover { background: var(--accent); color: #06210F; transform: scale(1.05); }
+.track-play:hover { background: var(--accent); color: var(--on-accent); transform: scale(1.05); }
 .track-thumb { width: 42px; height: 42px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
 .placeholder-thumb {
     display: inline-grid; place-items: center;
@@ -539,7 +725,7 @@ a.stat-card:hover { background: var(--bg-3); }
 .stat-label { color: var(--text-dim); font-size: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .stat-label svg { color: var(--muted); flex-shrink: 0; }
 
-/* minmax(0, …): the nowrap track titles inside a column must never be able to
+/* minmax(0, â€¦): the nowrap track titles inside a column must never be able to
    widen the grid track itself (a plain 1fr has an auto minimum = min-content,
    which pushed the page ~40px wider than the viewport on laptop screens). */
 .two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 30px; }
@@ -578,7 +764,7 @@ a.stat-card:hover { background: var(--bg-3); }
     margin: 8px auto;
     padding: 32px 24px;
     background: var(--bg-2);
-    border: 1px dashed #292932;
+    border: 1px dashed var(--border);
     border-radius: var(--radius);
 }
 .empty-state-icon {
@@ -1028,7 +1214,7 @@ a.stat-card:hover { background: var(--bg-3); }
     width: 18px; height: 18px;
     margin: -9px 0 0 -9px;
     border: 2px solid rgba(6, 33, 15, .35);
-    border-top-color: #06210F;
+    border-top-color: var(--on-accent);
     border-radius: 50%;
     animation: spin .7s linear infinite;
 }
@@ -1039,7 +1225,7 @@ a.stat-card:hover { background: var(--bg-3); }
    (right). No in-app volume control. */
 .player {
     position: fixed; left: 0; right: 0; bottom: 0; height: var(--player-h);
-    background: var(--bg-2); border-top: 1px solid #292932;
+    background: var(--bg-2); border-top: 1px solid var(--border);
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr) auto;
     align-items: center; gap: 16px;
@@ -1079,8 +1265,8 @@ a.stat-card:hover { background: var(--bg-3); }
 .player-btn:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .player-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(30, 215, 96, .35); }
 .player-btn:disabled { opacity: .35; cursor: not-allowed; }
-.player-btn-play { width: 40px; height: 40px; background: var(--accent); color: #06210F; }
-.player-btn-play:hover:not(:disabled) { background: var(--accent-2); color: #06210F; transform: scale(1.05); }
+.player-btn-play { width: 40px; height: 40px; background: var(--accent); color: var(--on-accent); }
+.player-btn-play:hover:not(:disabled) { background: var(--accent-2); color: var(--on-accent); transform: scale(1.05); }
 .player-btn-play .icon-state { display: grid; place-items: center; }
 .player-btn-play .icon-state-pause { display: none; }
 .player-btn-play.is-playing .icon-state-play { display: none; }
@@ -1098,6 +1284,84 @@ a.stat-card:hover { background: var(--bg-3); }
 .player-expand { color: var(--muted); margin-left: 4px; }
 .player-expand:hover:not(:disabled) { color: var(--accent); }
 
+.player-progress-mobile { display: none; }
+
+/* ---------- Mobile floating mini-player ----------
+   Only applied below 768px. Desktop keeps the original full-width bar. */
+@media (max-width: 767px) {
+    .player {
+        left: 8px; right: 8px; width: auto;
+        bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 8px);
+        height: 66px;
+        border: 1px solid var(--border); border-radius: 16px;
+        background: var(--bg-2); box-shadow: var(--shadow);
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-rows: 1fr;
+        grid-template-areas: "info actions play";
+        gap: 6px; align-content: center; padding: 8px 10px;
+        animation: melody-player-in .2s ease;
+    }
+    .player-info { grid-area: info; gap: 10px; }
+    .player-cover {
+        width: 46px; height: 46px; flex-shrink: 0;
+        border-radius: 10px; overflow: hidden;
+    }
+    .player-cover img, .player-cover-placeholder {
+        width: 100%; height: 100%; object-fit: cover;
+    }
+    .player-meta { overflow: hidden; }
+    .player-title { font-size: 13.5px; }
+    .player-artist { font-size: 11.5px; }
+
+    /* The existing transport block becomes just the prominent play button. */
+    .player-center { grid-area: play; width: auto; }
+    .player-controls { gap: 0; }
+    .player-controls .player-btn:not(.player-btn-play) { display: none; }
+    .player-btn-play {
+        width: 48px; height: 48px; min-width: 48px; min-height: 48px;
+        background: var(--accent); color: var(--on-accent);
+        box-shadow: 0 6px 16px rgba(30, 215, 96, .28);
+    }
+    .player-btn-play svg { width: 22px; height: 22px; }
+
+    /* Reuse the existing secondary actions: only Favorite and Add-to-playlist.
+       Shuffle/repeat/expand stay available in the full player. */
+    .player-right {
+        grid-area: actions; display: flex; align-items: center; gap: 2px;
+    }
+    .player-right .player-right-divider,
+    .player-right .player-btn-shuffle,
+    .player-right .player-btn-repeat,
+    .player-right .player-expand { display: none; }
+    .player-right .btn-icon {
+        width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+    }
+    .player-seek { display: none; }
+
+    .player .player-progress-mobile {
+        display: block; position: absolute; left: 0; right: 0; bottom: 0;
+        width: 100%; height: 4px; margin: 0; padding: 0;
+        border: 0; border-radius: 0; outline: none; cursor: pointer;
+        -webkit-appearance: none; appearance: none;
+        background: linear-gradient(
+            to right,
+            var(--accent) var(--progress, 0%),
+            rgba(140, 140, 155, .35) var(--progress, 0%)
+        );
+    }
+    .player .player-progress-mobile:disabled { cursor: default; opacity: .75; }
+    .player .player-progress-mobile::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+    .player .player-progress-mobile::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 10px; height: 10px;
+        border: 0; border-radius: 50%; background: var(--accent); margin-top: -3px;
+    }
+    .player .player-progress-mobile::-moz-range-track { height: 4px; background: transparent; }
+    .player .player-progress-mobile::-moz-range-progress { height: 4px; background: var(--accent); }
+    .player .player-progress-mobile::-moz-range-thumb {
+        width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--accent);
+    }
+}
+
 /* ---------- Compact dashboard video ----------
    One iframe, 16:9 and >=200x200, visible on the dashboard AND kept visible
    above the expanded overlay in its own reserved corner. */
@@ -1110,11 +1374,15 @@ a.stat-card:hover { background: var(--bg-3); }
     z-index: 120;
     background: #000;
     overflow: hidden;
-    border: 1px solid #292932;
+    border: 1px solid var(--border);
     border-radius: 12px;
     box-shadow: 0 14px 40px rgba(0, 0, 0, .6);
 }
-body.has-yt-panel .app { padding-bottom: calc(var(--player-h) + 36px); }
+/* Clearance for the floating video belongs to the MAIN column only. Putting it
+   on .app shortens the grid area that bounds the sticky sidebar, leaving a
+   gap between the sidebar and the fixed player at the bottom scroll position. */
+body.has-yt-panel .main { padding-bottom: 36px; }
+/* The video keeps playing; it simply must not receive clicks behind the sheet. */
 /* Expanded: the SAME iframe fills the video slot at the top of the screen. */
 body.np-open .yt-panel {
     z-index: 110;
@@ -1128,7 +1396,7 @@ body.np-open .yt-panel {
 
 input[type="range"] {
     -webkit-appearance: none; appearance: none;
-    height: 4px; background: #3a3a45; border-radius: 999px; outline: none; cursor: pointer;
+    height: 4px; background: var(--border-strong); border-radius: 999px; outline: none; cursor: pointer;
 }
 input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
@@ -1158,112 +1426,68 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
     .auth-visual { display: none; }  /* decorative only - form stays fully usable */
 }
 
-@media (max-width: 860px) {
-    /* Single column: the page track may never be forced wider than the
-       viewport by its contents (the nav now lives in a fixed drawer). */
-    .app, .admin-body { grid-template-columns: minmax(0, 1fr); }
-    /* Topbar -> page. The sidebar is position:fixed, so it takes no grid row:
-       without an explicit second row the page would land in an implicit row
-       and the growing "1fr" row above it would leave a big empty band. */
-    .app { grid-template-rows: auto minmax(0, 1fr); }
-    .app > .main { grid-row: 2; }
-    .admin-body .sidebar { position: static; height: auto; max-height: none; }
+/* Tablet 768-1023px: the sidebar stays, but slimmer and tighter. */
+@media (min-width: 768px) and (max-width: 1023px) {
+    :root { --sidebar-w: 212px; }
+    .sidebar { padding: 18px 10px; }
+    .nav-link { gap: 10px; padding: 10px 11px; font-size: 14px; min-height: 44px; }
+    .page { padding: 24px 22px 44px; }
+    .topbar { padding: 10px 16px; }
+}
 
-    /* ---- Hamburger in the header ---- */
-    .nav-toggle {
-        display: inline-flex;
-        width: 42px;
-        height: 42px;
-        background: var(--bg-3);
-        border: 1px solid #292932;
-        border-radius: 12px;
-        color: var(--text);
-    }
-    .nav-toggle:hover { background: var(--hover); color: var(--text); }
-    .topbar { gap: 12px; }
-    .topbar-search { width: clamp(160px, 34vw, 280px); }
+/* Mobile: compact header + bottom navigation, no sidebar and no topbar. */
+@media (max-width: 767px) {
+    :root { --player-h: 86px; --nav-h: 66px; }
 
-    /* ---- Slide-out navigation drawer (left) ----
-       It is the same sidebar element - same logo, same nav links, same
-       routing - only its position changes, so nothing is duplicated. */
-    .app > .sidebar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        bottom: 0;
-        /* the base sidebar is align-self:start (a sticky column); left as-is it
-           would stop the fixed box from stretching, so the drawer would be only
-           as tall as its links instead of reaching the bottom of the screen */
-        align-self: normal;
-        z-index: 140;
-        width: min(300px, 86vw);
-        height: auto;
-        max-height: none;
-        padding: 14px 14px 20px;
-        border-right: 1px solid #292932;
-        border-bottom: none;
-        display: block;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        transform: translateX(-100%);
-        visibility: hidden;
-        /* visibility flips only after the slide has finished, so the drawer
-           never vanishes while it is still moving */
-        transition: transform .22s ease, visibility 0s linear .22s;
+    .app {
+        grid-template-columns: minmax(0, 1fr);
+        padding-bottom: calc(var(--player-h) + var(--nav-h) + env(safe-area-inset-bottom, 0px));
     }
-    .app > .sidebar.is-open {
-        transform: translateX(0);
-        visibility: visible;
-        transition: transform .22s ease, visibility 0s linear 0s;
-        box-shadow: 24px 0 60px rgba(0, 0, 0, .55);
-    }
-    /* logo row: the close button sits on its own line, above the links */
-    .sidebar-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding-bottom: 16px;
-    }
-    .logo { padding: 0 6px; flex-shrink: 0; }
-    .nav-close {
-        display: inline-flex;
-        width: 38px;
-        height: 38px;
-        background: var(--bg-3);
-        border: 1px solid #292932;
-        border-radius: 11px;
-        color: var(--text-dim);
-    }
-    .nav-close:hover { background: var(--hover); color: var(--text); }
-    .nav { gap: 4px; }
+    .app > .sidebar, .app > .topbar { display: none; }
+    .main { grid-column: 1; }
 
-    /* dimmed area next to the drawer: tap it to close */
-    .nav-backdrop {
-        display: block;
-        position: fixed;
-        inset: 0;
-        z-index: 130;
-        background: rgba(0, 0, 0, .62);
-        animation: melody-fade-in .16s ease;
+    .mobile-page-header {
+        display: flex; align-items: center; gap: 12px;
+        padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 10px;
+        background: var(--bg-2); border-bottom: 1px solid var(--border);
+        position: sticky; top: 0; z-index: 24;
     }
+    .mobile-page-header h1 {
+        margin: 0; min-width: 0; font-size: 22px; font-weight: 800;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* The pages keep their headings for desktop; only the mobile header shows. */
+    .page > .page-title, .page-header h1, .home-title, .home-eyebrow { display: none; }
+    .page { padding: 18px 16px 32px; }
+    .page-header { margin-bottom: 12px; }
 
+    /* Bottom navigation */
+    .mobile-bottom-nav {
+        display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+        position: fixed; left: 0; right: 0; bottom: 0;
+        height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        background: var(--bg-2); border-top: 1px solid var(--border);
+        z-index: 60;
+    }
+    .mobile-nav-item {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 4px; min-width: 0; border: 0; background: none; cursor: pointer;
+        color: var(--muted); font: inherit; font-size: 11px; font-weight: 600;
+        text-decoration: none; border-radius: 12px;
+        transition: color .16s ease, background .16s ease, transform .12s ease;
+    }
+    .mobile-nav-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+    .mobile-nav-item:active { transform: scale(.96); }
+    .mobile-nav-item.active { color: var(--accent); background: rgba(30, 215, 96, .1); }
+
+    .player:not(.has-track) { display: none; }
     .album-header { flex-direction: column; align-items: flex-start; }
+}
 
-    /* Mini player: info + secondary actions, then transport + progress */
-    :root { --player-h: 112px; }
-    .player {
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas: "info right" "center center";
-        grid-template-rows: auto auto;
-        align-content: center;
-        gap: 8px 12px;
-        padding: 10px 14px;
-    }
-    .player-info { grid-area: info; }
-    .player-center { grid-area: center; }
-    .player-right { grid-area: right; }
-    .player-cover { width: 42px; height: 42px; }
+@keyframes melody-player-in {
+    from { transform: translateY(10px); opacity: .5; }
+    to { transform: translateY(0); opacity: 1; }
 }
 
 /* Two-column blocks (Playlists | Favorites, admin panels) only stack on phones */
@@ -1349,28 +1573,17 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
     .btn-danger { min-height: 34px; }
     /* Touch-friendly sliders: bigger hit area + thumb, same visual track */
     input[type="range"] { height: 18px; background: transparent; }
-    input[type="range"]::-webkit-slider-runnable-track { height: 6px; background: #3a3a45; border-radius: 999px; }
+    input[type="range"]::-webkit-slider-runnable-track { height: 6px; background: var(--border-strong); border-radius: 999px; }
     input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5px; }
-    input[type="range"]::-moz-range-track { height: 6px; background: #3a3a45; border-radius: 999px; }
+    input[type="range"]::-moz-range-track { height: 6px; background: var(--border-strong); border-radius: 999px; }
     input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; }
-    /* Mini player: info + actions on one row, transport + progress below */
-    :root { --player-h: 118px; }
-    .player {
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas: "info right" "center center";
-        grid-template-rows: auto auto;
-        gap: 6px 8px;
-        padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
-    }
-    .player-info { grid-area: info; gap: 8px; }
-    .player-center { grid-area: center; }
-    .player-right { grid-area: right; justify-content: flex-end; gap: 2px; }
-    .player-right-divider { margin: 0 2px; }
-    .player-cover { width: 40px; height: 40px; }
-    .player-btn { width: 30px; height: 30px; }
-    .player-btn-play { width: 36px; height: 36px; }
-    .player-time { min-width: 26px; }
+    /* Smaller phones: keep the artwork/play target comfortable. */
+    .player { padding: 8px 10px; gap: 6px; }
+    .player-cover { width: 42px; height: 42px; }
+    .player-title { font-size: 12.5px; }
     .player-artist { font-size: 11px; }
+    .mobile-page-header h1 { font-size: 20px; }
+    .user-avatar { width: 36px; height: 36px; }
 }
 
 
@@ -1554,7 +1767,7 @@ button.track-play { border: 0; cursor: pointer; font: inherit; }
 .np-shuffle.is-active { color: var(--accent); }
 .np-play {
     width: 66px; height: 66px; flex-shrink: 0; border: none; border-radius: 50%;
-    background: var(--accent); color: #06210F; cursor: pointer;
+    background: var(--accent); color: var(--on-accent); cursor: pointer;
     display: grid; place-items: center;
     box-shadow: 0 10px 30px rgba(30, 215, 96, .32);
     transition: transform .15s ease, background .15s ease;
@@ -1628,8 +1841,8 @@ body.np-open .app { display: none; }
 body.np-open .pl-overlay { z-index: 160; }
 body.np-open .toast { z-index: 170; bottom: 24px; }
 
-/* Tablet / phone: one flowing column, compact video docked above the mini bar. */
-@media (max-width: 860px) {
+/* Mobile: one flowing column, compact video docked above the mini bar. */
+@media (max-width: 767px) {
     .np-screen {
         min-height: 100dvh;             /* tracks browser chrome show/hide */
         overflow: visible;              /* document scrollbar only */
@@ -1666,7 +1879,7 @@ body.np-open .toast { z-index: 170; bottom: 24px; }
        YouTube does not allow, so min-height keeps it compliant. */
     .yt-panel {
         left: 50%; right: auto; top: auto;
-        bottom: calc(var(--player-h) + 12px + env(safe-area-inset-bottom, 0px));
+        bottom: calc(var(--player-h) + var(--nav-h) + 12px + env(safe-area-inset-bottom, 0px));
         transform: translateX(-50%);
         width: min(320px, calc(100vw - 32px));
         /* 202px box keeps the iframe viewport itself >=200x200 after the
@@ -1674,7 +1887,9 @@ body.np-open .toast { z-index: 170; bottom: 24px; }
         height: 202px; aspect-ratio: 16 / 9; min-height: 202px;
         margin: 0; padding: 0;
     }
-    body.has-yt-panel .app { padding-bottom: calc(var(--player-h) + 230px); }
+    body.has-yt-panel .app {
+        padding-bottom: calc(var(--player-h) + var(--nav-h) + 230px + env(safe-area-inset-bottom, 0px));
+    }
 }
 
 @media (max-width: 420px) {
@@ -1704,7 +1919,7 @@ body.np-open .toast { z-index: 170; bottom: 24px; }
     cursor: pointer;
     transition: background .15s ease, border-color .15s ease, transform .15s ease;
 }
-.artist-card:hover { background: var(--bg-3); border-color: #292932; transform: translateY(-2px); }
+.artist-card:hover { background: var(--bg-3); border-color: var(--border); transform: translateY(-2px); }
 .artist-card:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(30, 215, 96, .35); }
 .artist-avatar, .artist-avatar-ph {
     width: 72px;
@@ -1755,7 +1970,7 @@ body.np-open .toast { z-index: 170; bottom: 24px; }
     max-height: 86vh;
     overflow-y: auto;
     background: var(--bg-2);
-    border: 1px solid #292932;
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     padding: 20px;
     box-shadow: var(--shadow);
@@ -1793,7 +2008,7 @@ body.np-open .toast { z-index: 170; bottom: 24px; }
 }
 .pl-box {
     width: 100%; max-width: 380px; max-height: 86vh; overflow-y: auto;
-    background: var(--bg-2); border: 1px solid #292932; border-radius: var(--radius-lg);
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-lg);
     padding: 20px; box-shadow: var(--shadow);
     display: flex; flex-direction: column; gap: 14px;
 }
@@ -1950,7 +2165,7 @@ body.np-open .toast { z-index: 170; bottom: 24px; }
 .scroll-btn {
     position: absolute; top: calc(50% - 26px); z-index: 5; width: 42px; height: 42px; border-radius: 50%;
     display: grid; place-items: center; background: rgba(18, 18, 22, .92); color: var(--text);
-    border: 1px solid #3a3a45; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+    border: 1px solid var(--border-strong); cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
     opacity: 0; transition: opacity .15s, background .15s, color .15s;
 }
 .scroll-prev { left: -14px; } .scroll-next { right: -14px; }
@@ -2013,7 +2228,8 @@ body.dlg-open { overflow: hidden; }
 @keyframes popup-in { from { opacity: 0; transform: translate(-50%, -18px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes popup-out { to { opacity: 0; transform: translate(-50%, -18px); } }
 @media (prefers-reduced-motion: reduce) {
-    .popup-notice, .dlg-box, .dlg-overlay, .skeleton-block, .skeleton-line { animation: none; }
+    .popup-notice, .dlg-box, .dlg-overlay, .skeleton-block, .skeleton-line,
+    .account-drawer, .account-dropdown, .player, .mobile-nav-item, .nav-link { animation: none; transition: none; }
     .scroll-row .scroll-strip { scroll-behavior: auto; }
 }
 
@@ -2053,4 +2269,5 @@ body.dlg-open { overflow: hidden; }
     .when-row .track-suffix { display: none; }
     .history-summary { font-size: 12.5px; margin: -6px 0 16px; }
 }
+
 

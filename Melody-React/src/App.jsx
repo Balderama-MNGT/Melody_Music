@@ -17,6 +17,9 @@ import Favorites from './pages/Favorites.jsx'
 import Albums from './pages/Albums.jsx'
 import History from './pages/History.jsx'
 import Privacy from './pages/Privacy.jsx'
+import Settings from './pages/Settings.jsx'
+import Help from './pages/Help.jsx'
+import About from './pages/About.jsx'
 
 /** Shown while the stored session is being restored. */
 function Booting() {
@@ -92,6 +95,9 @@ export default function App() {
                 <Route path="favorites" element={<Favorites />} />
                 <Route path="albums" element={<Albums />} />
                 <Route path="history" element={<History />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="help" element={<Help />} />
+                <Route path="about" element={<About />} />
               </Route>
 
               <Route path="/privacy" element={<Privacy />} />

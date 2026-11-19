@@ -8,6 +8,19 @@
       content="Melody - discover music, build playlists, and keep the music going."
     />
     <title>Melody - Your Soundtrack. Your World.</title>
+    <script>
+      /* Apply the saved theme before the app renders to avoid a flash. */
+      (function () {
+        try {
+          var p = localStorage.getItem('melody:theme');
+          if (['light', 'dark', 'system'].indexOf(p) < 0) p = 'system';
+          var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.dataset.theme = p === 'system' ? (dark ? 'dark' : 'light') : p;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

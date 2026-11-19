@@ -46,7 +46,11 @@ export default function Player() {
   }
 
   return (
-    <footer className={`player${loading ? ' is-loading' : ''}`} id="player" onClick={onSurfaceClick}>
+    <footer
+      className={`player${loading ? ' is-loading' : ''}${hasTrack ? ' has-track' : ''}`}
+      id="player"
+      onClick={onSurfaceClick}
+    >
       {/* LEFT: artwork + metadata */}
       <div className="player-info">
         <div className="player-cover">
@@ -163,6 +167,21 @@ export default function Player() {
           <Icon name="chevron-up" size={18} />
         </button>
       </div>
+
+      {/* Mobile-only thin progress line. Shares the exact same time/duration
+          state and seek handler as the desktop range control. */}
+      <input
+        type="range"
+        className="player-progress-mobile"
+        style={{ '--progress': `${percent}%` }}
+        min="0"
+        max="100"
+        step="0.1"
+        value={percent}
+        aria-label="Seek"
+        disabled={!hasTrack || duration <= 0}
+        onChange={(e) => seekPercent(Number(e.target.value))}
+      />
     </footer>
   )
 }
