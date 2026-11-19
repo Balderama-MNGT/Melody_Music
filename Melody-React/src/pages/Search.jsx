@@ -29,6 +29,16 @@ export default function Search() {
     setTerm(q)
   }, [q])
 
+  /* The header search bar routes here with focusSearch in the location state.
+     Focusing the page's own input keeps one search implementation and one
+     source of truth (the ?q= URL) - the header never searches by itself. */
+  const shouldFocus = Boolean(location.state && location.state.focusSearch)
+  useEffect(() => {
+    if (!shouldFocus) return undefined
+    const frame = requestAnimationFrame(() => document.getElementById('pageSearch')?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [shouldFocus, q])
+
   const [library, setLibrary] = useState(null) // null = not loaded yet
 
   /* YouTube answers for this page through MusicSection, which reports the

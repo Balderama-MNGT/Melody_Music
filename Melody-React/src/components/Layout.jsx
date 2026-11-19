@@ -18,13 +18,13 @@ const NAV_ITEMS = [
 ]
 
 /**
- * The authenticated shell: topbar (tagline + account), the sidebar (logo +
- * nav), the page itself and the ever-present bottom player.
+ * The authenticated shell: topbar (search shortcut + account), the sidebar
+ * (logo + nav), the page itself and the ever-present bottom player.
  * Port of includes/header.php, includes/sidebar.php and includes/footer.php.
  *
- * There is exactly one search field in the app and it lives on the Search
- * page, directly under that page's title - the sidebar and the topbar stay
- * free of inputs so nothing can fight the results page over the same query.
+ * The topbar input is only a shortcut: it hands the query to the existing
+ * Search page via ?q= and asks that page to focus its own input. There is one
+ * search implementation and one source of truth (the URL on the Search page).
  */
 export default function Layout() {
   const { session, profile, signOut } = useAuth()
@@ -33,8 +33,19 @@ export default function Layout() {
   const location = useLocation()
   const [confirmingLogout, setConfirmingLogout] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
+  const [topQuery, setTopQuery] = useState('')
 
   const closeNav = () => setNavOpen(false)
+
+  /** The header field never searches on its own: it routes to the one Search
+      page and asks that page to focus its existing input. */
+  function openSearch(value = '') {
+    const q = String(value || '').trim()
+    setTopQuery('')
+    navigate(q ? `/app/search?q=${encodeURIComponent(q)}` : '/app/search', {
+      state: { focusSearch: true },
+    })
+  }
 
   /* A new page starts at the top, like nav.js did. */
   useEffect(() => {
@@ -90,8 +101,8 @@ export default function Layout() {
       </a>
 
       <header className="topbar">
-        {/* Left: the menu button (phones) plus one line that gives the bare
-            header a purpose without repeating the greeting on the right. */}
+        {/* Left: the menu button (phones) plus a shortcut to the ONE Search
+            page. Empty click focuses the page's own input; Enter searches. */}
         <div className="topbar-left">
           <button
             type="button"
@@ -103,7 +114,33 @@ export default function Layout() {
           >
             <Icon name="menu" size={22} />
           </button>
-          <span className="topbar-tagline">Your music, all in one place</span>
+          <form
+            className="topbar-search"
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault()
+              openSearch(topQuery)
+            }}
+          >
+            <span className="topbar-search-icon" aria-hidden="true">
+              <Icon name="search" size={18} />
+            </span>
+            <label className="visually-hidden" htmlFor="topbarSearch">
+              Search songs, artists, albums
+            </label>
+            <input
+              id="topbarSearch"
+              type="text"
+              className="topbar-search-input"
+              placeholder="Search songs, artists, albums..."
+              value={topQuery}
+              onChange={(e) => setTopQuery(e.target.value)}
+              onClick={() => {
+                if (!topQuery.trim()) openSearch('')
+              }}
+              autoComplete="off"
+            />
+          </form>
         </div>
 
         <div className="topbar-user">

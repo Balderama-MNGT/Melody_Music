@@ -103,16 +103,28 @@ img { max-width: 100%; }
     z-index: 20;
 }
 
-/* Left of the header: the hamburger (phones only) and one quiet line, so the
-   bar reads as a header rather than a greeting stranded in the corner. */
+/* Left of the header: the hamburger (phones only) and a search shortcut.
+   The actual search still happens on the Search page. */
 .topbar-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.topbar-tagline {
-    font-size: 13.5px;
-    color: var(--text-dim);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.topbar-search {
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+    width: clamp(220px, 28vw, 420px); height: 38px; padding: 0 14px;
+    background: var(--bg-3); border: 1px solid var(--input-border);
+    border-radius: 999px; cursor: text;
+    transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
+.topbar-search:hover { border-color: #3a3a45; background: var(--hover); }
+.topbar-search:focus-within {
+    border-color: var(--accent); background: var(--bg-2);
+    box-shadow: 0 0 0 3px rgba(30, 215, 96, .16);
+}
+.topbar-search-icon { display: inline-flex; color: var(--muted); flex-shrink: 0; }
+.topbar-search:focus-within .topbar-search-icon { color: var(--accent); }
+.topbar-search-input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+    color: var(--text); font: inherit; font-size: 13.5px;
+}
+.topbar-search-input::placeholder { color: var(--muted); }
 .topbar-user { display: flex; align-items: center; gap: 12px; color: var(--text-dim); flex-shrink: 0; margin-left: auto; }
 .topbar-greeting { font-size: 14px; white-space: nowrap; }
 .topbar-greeting strong { color: var(--text); }
@@ -1169,6 +1181,7 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
     }
     .nav-toggle:hover { background: var(--hover); color: var(--text); }
     .topbar { gap: 12px; }
+    .topbar-search { width: clamp(160px, 34vw, 280px); }
 
     /* ---- Slide-out navigation drawer (left) ----
        It is the same sidebar element - same logo, same nav links, same
@@ -1281,18 +1294,21 @@ input[type="range"]:disabled::-moz-range-thumb { cursor: not-allowed; }
     .btn-icon { min-height: 40px; min-width: 40px; }
 
     /* ---- Dashboard: phone layout ---- */
-    /* Header on phones: hamburger left, greeting/logout right, on one line -
-       the tagline has no room here and the search field lives in the page. */
+    /* Header on phones: hamburger + compact search left, logout right. The
+       greeting is hidden here so nothing overlaps the search field. */
     .topbar { gap: 8px 10px; padding: 10px 12px; }
-    .topbar-left { order: 1; }
-    .topbar-tagline { display: none; }
+    .topbar-left { order: 1; flex: 1 1 auto; gap: 8px; }
+    .topbar-search { flex: 1 1 auto; width: auto; height: 38px; padding: 0 10px; }
+    .topbar-search-input { font-size: 13px; }
     .topbar-user {
         order: 2;
-        margin-left: auto;
+        margin-left: 0;
         justify-content: flex-end;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 8px;
     }
+    .topbar-greeting { display: none; }
+    .btn-logout span { display: none; }
     .page { padding: 20px 16px 40px; }
     /* The page's search row stacks when width is short: the input takes its
        own line, the Search button runs full width underneath it. */
